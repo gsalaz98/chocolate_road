@@ -1,0 +1,6 @@
+# VSCode Editor Files
+.vscode/*
+
+# Rust build files
+/target
+**/*.rs.bk

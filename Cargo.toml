@@ -1,0 +1,12 @@
+[package]
+name = "rusty_road"
+version = "0.1.0"
+authors = ["Gerardo Salazar <gsalaz9800@gmail.com>"]
+
+[dependencies]
+chrono = "0.4"
+ndarray = { version = "0.12.0", features = ["blas"] }
+rayon = "1.0"
+strum = "0.10.0"
+strum_macros = "0.10.0"
+ws = "0.7.8"
