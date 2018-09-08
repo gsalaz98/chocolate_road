@@ -57,7 +57,6 @@ fn orderbook_initialize() {
     ];
 
     // mutate the orderbook with the new orders
-    println!("2");
     new_ob.new_state(&orders);
 
     assert_eq!(new_ob.best_bid, (304.5 / new_ob.tick_size) as u64); // new updated best bid
@@ -73,7 +72,6 @@ fn orderbook_initialize() {
     ];
 
     // mutate orderbook state
-    println!("3");
     new_ob.new_state(&orders);
 
     assert_eq!(new_ob.best_bid, (304.0 / new_ob.tick_size) as u64);
@@ -92,7 +90,6 @@ fn orderbook_initialize() {
     ];
 
     // Final orderbook mutation
-    println!("4");
     new_ob.new_state(&orders);
 
     assert_eq!(new_ob.best_bid, (303.0 / new_ob.tick_size) as u64);

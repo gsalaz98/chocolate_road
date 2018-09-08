@@ -26,18 +26,72 @@ impl Exchange {
     }
     /// Returns the separator present in the market/asset pair. Some exchanges don't include
     /// any string or separator, so we represent that with an empty string.
-    pub fn asset_separator(&self) -> &'static str {
+    pub fn asset_separator(&self) -> String {
         match &self {
-            Exchange::Poloniex => "-",
-            Exchange::GDAX => "-",
-            Exchange::BitMEX => "",
+            Exchange::Poloniex => "-".into(),
+            Exchange::GDAX => "-".into(),
+            Exchange::BitMEX => "".into(),
+        }
+    }
+
+    /// This function takes the asset, and converts it to its representation on an exchange.
+    /// Example: Bitcoin is annotated as `BTC` on Poloniex, but appears as `XBT` in BitMEX.
+    pub fn normalize_asset(&self, asset: Asset) -> Option<String> {
+        match self {
+            Exchange::Poloniex => match asset {
+                Asset::BTC => Some("BTC".into()),
+                Asset::ETH => Some("ETH".into()),
+                Asset::LTC => Some("LTC".into()),
+                Asset::USDT => Some("USDT".into()),
+                _ => None
+            },
+            Exchange::GDAX => match asset {
+                Asset::BTC => Some("BTC".into()),
+                Asset::ETH => Some("ETH".into()),
+                Asset::LTC => Some("LTC".into()),
+                _ => None
+            },
+            Exchange::BitMEX => match asset {
+                Asset::BTC => Some("XBT".into()),
+                Asset::ETH => Some("ETH".into()),
+                Asset::LTC => Some("LTC".into()),
+
+                Asset::USD => Some("USD".into()),
+                _ => None
+            }
+        }
+    }
+    /// Indicates whether or not the exchange supports standard buyer/seller transactions without any sort of contracts.
+    /// Normal buy/sell like equities market
+    pub fn supports_normal(&self) -> bool {
+        match self {
+            Exchange::BitMEX => false,
+            Exchange::GDAX => true,
+            Exchange::Poloniex => true,
+        }
+    }
+    /// Exchanges that support options
+    pub fn supports_options(&self) -> bool {
+        match self {
+            Exchange::BitMEX => true,
+            Exchange::GDAX => false,
+            Exchange::Poloniex => false,
+        }
+    }
+    /// Exchanges that support futures
+    pub fn supports_futures(&self) -> bool {
+        match self {
+            Exchange::BitMEX => true,
+            Exchange::GDAX => false,
+            Exchange::Poloniex => false,
         }
     }
 }
 
-#[derive(AsStaticStr, Clone)]
 /// Assets that are currently supported. We plan on standardizing all token names across multiple exchanges,
-/// so having an enum of supported assets is quite... the asset ᕕ( ᐛ )ᕗ
+/// so having an enum of supported assets is quite... the asset ᕕ( ᐛ )ᕗ. We've included fiat as well in here,
+/// as they are considered a valid market on many websites
+#[derive(AsStaticStr, Clone)]
 pub enum Asset {
     /// Bitcoin
     BTC = 0,
@@ -45,6 +99,41 @@ pub enum Asset {
     ETH,
     /// Litecoin
     LTC,
+    /// Tether
+    USDT,
+
+    // FIAT
+    //
+    /// United States Dollar
+    USD,
+    /// Japanese Yen
+    JPY,
+    /// Chinese Yuan
+    CNY,
+    /// Korean Won
+    KRW,
+    /// Euro
+    EUR,
+    /// Great British Pound-Sterling
+    GBP,
+    /// Canadian Dollar
+    CAD,
+    /// Australian Dollar
+    AUD
+}
+
+pub enum OptionsAsset {
+    /// Bitcoin options
+    BTC = 0,
+    /// Ethereum options
+    ETH,
+}
+
+pub enum FuturesAsset {
+    /// Bitcoin Futures
+    BTC = 0,
+    /// Ethereum options
+    ETH,
 }
 
 /// Helper function that takes in the assets you want to trade as a `MARKET, ASSET` vector pair.
@@ -55,7 +144,7 @@ pub fn get_asset_pair(assets: &Vec<Asset>, exch: Exchange) -> String {
         true => {
             let mut pair = String::with_capacity(9);
             pair.push_str(assets[0].as_static());
-            pair.push_str(exch.asset_separator());
+            pair.push_str(exch.asset_separator().as_str());
             pair.push_str(assets[1].as_static());
 
             pair
@@ -63,8 +152,8 @@ pub fn get_asset_pair(assets: &Vec<Asset>, exch: Exchange) -> String {
         false => {
             let mut pair = String::with_capacity(9);
             pair.push_str(assets[1].as_static());
-            pair.push_str(exch.asset_separator());
-            pair.push_str(assets[1].as_static());
+            pair.push_str(exch.asset_separator().as_str());
+            pair.push_str(assets[0].as_static());
 
             pair
         }
@@ -78,7 +167,7 @@ pub fn get_batch_asset_pairs(assets: &Vec<[Asset; 2]>, exch: Exchange) -> Vec<St
             true => {
                 let mut pair = String::with_capacity(9);
                 pair.push_str(asset_pair[0].as_static());
-                pair.push_str(exch.asset_separator());
+                pair.push_str(exch.asset_separator().as_str());
                 pair.push_str(asset_pair[1].as_static());
 
                 pair
@@ -86,7 +175,7 @@ pub fn get_batch_asset_pairs(assets: &Vec<[Asset; 2]>, exch: Exchange) -> Vec<St
             false => {
                 let mut pair = String::with_capacity(9);
                 pair.push_str(asset_pair[1].as_static());
-                pair.push_str(exch.asset_separator());
+                pair.push_str(exch.asset_separator().as_str());
                 pair.push_str(asset_pair[0].as_static());
 
                 pair

@@ -4,9 +4,6 @@ use rayon::prelude::*;
 use strum::AsStaticRef;
 use exchange::{Asset, Exchange};
 
-/// Orderbook state analysis
-pub mod analyze;
-
 /// The various states that a delta can be/encode
 pub enum EventState {
     /// Insertion event (i.e. new order)
@@ -233,6 +230,7 @@ impl Book {
                     }
                 }
             } else {
+                // Handle ask order here
                 if *size == 0.0 {
                     // Process cancelation event. We can't ensure that an option will
                     // be put in place, so we have to take it upon ourselves to see that it will.
@@ -240,11 +238,10 @@ impl Book {
                         // First, sort the `ask_price_points` vector
                         self.ask_price_points.sort();
                         
-                        let level_price = self.ask_price_points[0];
-                        let ask_level_size = self.state[level_price as usize];
+                        let level_price = self.ask_price_points[1];
                         
                         self.best_ask = level_price;
-                        self.best_ask_size= ask_level_size.unwrap();
+                        self.best_ask_size= self.state[level_price as usize].unwrap();
 
                         // TODO: This may be inefficient...
                         self.ask_price_points = self.ask_price_points[1..].to_vec();
