@@ -20,6 +20,7 @@ extern crate rayon;
 extern crate strum;
 #[macro_use] 
 extern crate strum_macros;
+extern crate ws;
 
 /// Exchanges and exchange-related methods and modules
 pub mod exchange;

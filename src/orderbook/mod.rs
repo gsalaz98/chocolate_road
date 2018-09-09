@@ -1,8 +1,7 @@
 use chrono::prelude::*;
 //use ndarray;
 use rayon::prelude::*;
-use strum::AsStaticRef;
-use exchange::{Asset, Exchange};
+use exchange::Asset;
 
 /// The various states that a delta can be/encode
 pub enum EventState {

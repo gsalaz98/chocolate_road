@@ -2,6 +2,7 @@
 pub mod bitmex;
 
 use strum::AsStaticRef;
+use orderbook;
 
 /// Complete list of all the exchanges we support. This is also used as a unique
 /// identifier to differentiate where the data originated. Is used in the `orderbook` module.
@@ -88,6 +89,22 @@ impl Exchange {
     }
 }
 
+/// Skeleton methods that we expect all exchanges to implement
+pub trait AssetExchange {
+    /// Map error codes to a reason or predefined behavior
+    fn error_code(&self, code: u16);
+    /// Parses the snapshot passed as a generic T type
+    fn snapshot<T>(&self, snap: T);
+    /// Message receive/delta event loop. Can run a callback per message received.
+    /// Takes two generic parameters: `T` being the kind of closure we want to run,
+    /// and `K` being the value the closure returns. This method is useful for receiving
+    /// statistics about the orderbook as time progresses.
+    fn receive<T, K>(&self, callback: Option<T>) where
+        T: Fn(orderbook::Snapshot) -> K, 
+        T: FnMut(orderbook::Snapshot) -> K, 
+        T: FnOnce(orderbook::Snapshot) -> K;
+}
+
 /// Assets that are currently supported. We plan on standardizing all token names across multiple exchanges,
 /// so having an enum of supported assets is quite... the asset ᕕ( ᐛ )ᕗ. We've included fiat as well in here,
 /// as they are considered a valid market on many websites
@@ -122,6 +139,9 @@ pub enum Asset {
     AUD
 }
 
+/// Options are by nature much more different from other assets. For one, very few assets
+/// will have options support, so it would make sense to separate the asset classes into two 
+/// distinct groups, which is what we've done here.
 pub enum OptionsAsset {
     /// Bitcoin options
     BTC = 0,
@@ -129,6 +149,7 @@ pub enum OptionsAsset {
     ETH,
 }
 
+/// Same reasoning as options. The exclusivity of futures warrants its own group of assets.
 pub enum FuturesAsset {
     /// Bitcoin Futures
     BTC = 0,
