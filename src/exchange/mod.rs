@@ -91,18 +91,12 @@ impl Exchange {
 
 /// Skeleton methods that we expect all exchanges to implement
 pub trait AssetExchange {
+    /// Require that each asset exchange we define have defaults
+    fn default_settings(&self) -> Self;
     /// Map error codes to a reason or predefined behavior
-    fn error_code(&self, code: u16);
+    fn error_code(&self, code: u16) -> Result<(), String>;
     /// Parses the snapshot passed as a generic T type
     fn snapshot<T>(&self, snap: T);
-    /// Message receive/delta event loop. Can run a callback per message received.
-    /// Takes two generic parameters: `T` being the kind of closure we want to run,
-    /// and `K` being the value the closure returns. This method is useful for receiving
-    /// statistics about the orderbook as time progresses.
-    fn receive<T, K>(&self, callback: Option<T>) where
-        T: Fn(orderbook::Snapshot) -> K, 
-        T: FnMut(orderbook::Snapshot) -> K, 
-        T: FnOnce(orderbook::Snapshot) -> K;
 }
 
 /// Assets that are currently supported. We plan on standardizing all token names across multiple exchanges,

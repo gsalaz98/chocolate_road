@@ -17,10 +17,14 @@
 extern crate chrono;
 extern crate ndarray;
 extern crate rayon;
+extern crate serde_json;
 extern crate strum;
+extern crate ws;
+
+#[macro_use]
+extern crate serde_derive;
 #[macro_use] 
 extern crate strum_macros;
-extern crate ws;
 
 /// Exchanges and exchange-related methods and modules
 pub mod exchange;
