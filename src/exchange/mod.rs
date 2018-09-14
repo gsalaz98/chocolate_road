@@ -92,11 +92,11 @@ impl Exchange {
 /// Skeleton methods that we expect all exchanges to implement
 pub trait AssetExchange {
     /// Require that each asset exchange we define have defaults
-    fn default_settings(&self) -> Self;
-    /// Map error codes to a reason or predefined behavior
-    fn error_code(&self, code: u16) -> Result<(), String>;
+    fn default_settings() -> Self;
     /// Parses the snapshot passed as a generic T type
     fn snapshot<T>(&self, snap: T);
+    /// Start and run the websocket data collection
+    fn run(settings: Option<&Self>);
 }
 
 /// Assets that are currently supported. We plan on standardizing all token names across multiple exchanges,

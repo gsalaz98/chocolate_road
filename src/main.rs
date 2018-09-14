@@ -19,6 +19,7 @@ extern crate ndarray;
 extern crate rayon;
 extern crate serde_json;
 extern crate strum;
+extern crate url;
 extern crate ws;
 
 #[macro_use]
@@ -33,5 +34,9 @@ pub mod orderbook;
 /// Unit tests for various parts of this project
 pub mod tests;
 
+use exchange::AssetExchange;
+use exchange::bitmex;
+
 fn main() {
+    bitmex::WSExchange::run(None);
 }

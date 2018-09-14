@@ -3,36 +3,34 @@ use chrono::prelude::*;
 use rayon::prelude::*;
 use exchange::Asset;
 
-/// The various states that a delta can be/encode
-pub enum EventState {
-    /// Insertion event (i.e. new order)
-    Insert = 1,
-    /// Order cancelation
-    Remove = 1 << 1,
-    /// Order update (i.e. updates size)
-    Update = 1 << 2, 
-    /// Trade event
-    Trade  = 1 << 3,
-    /// Ask side order
-    Ask    = 1 << 4,
-    /// Bid side order
-    Bid    = 1 << 5 
-}
+/// Insertion event (i.e. new order)
+pub const INSERT: u8 = 1;
+/// Order cancelation
+pub const REMOVE: u8 = 1 << 1;
+/// Order update (i.e. updates size)
+pub const UPDATE: u8 = 1 << 2; 
+/// Trade event
+pub const TRADE: u8 = 1 << 3;
+/// Ask side order
+pub const ASK: u8 = 1 << 4;
+/// Bid side order
+pub const BID: u8 = 1 << 5;
+
 
 /// Contains all the necessary parts to reconstruct an orderbook. Deltas are the incremental changes
 /// that happen to the orderbook over time. Deltas are the primary way that orderbooks are updated.
 #[derive(Clone)]
 pub struct Delta {
     /// Level price
-    price: f32,
+    pub price: f32,
     /// Level size
-    size: f32,
+    pub size: f32,
     /// Sequence count
-    seq: u32,
+    pub seq: u32,
     /// Timestamp -- This is `u32` because `tectonicdb` expects `u32` for timestamp as UNIX epoch time
-    ts: u32,
+    pub ts: u32,
     /// Encodes two pieces of information using bitwise flags -- The order side (bid/ask), and the event that occured.
-    event: u8,
+    pub event: u8,
 }
 
 /// Before we can start applying deltas, we must have a snapshot to build off of. This is the initial state of the
