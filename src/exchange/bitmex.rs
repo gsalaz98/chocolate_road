@@ -169,7 +169,9 @@ impl AssetExchange for WSExchange {
 
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
-        Ok(())
+        let msg = String::new();
+
+        msg.push_str("")
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
@@ -181,14 +183,21 @@ impl Handler for WSExchangeSender {
                 for update in message.data {
                     match update.symbol.as_str() {
                         XBTUSD => {
-                            let is_bid = update.side == "Buy";
-                            let is_trade = 
+                            let is_bid = match update.side == "Buy" {
+                                true => orderbook::BID,
+                                false => orderbook::ASK,
+                            };
+
+                            let is_trade = match message.action == "Trade" {
+                                true => orderbook::TRADE,
+                                false => orderbook::UPDATE,
+                            };
                             orderbook::Delta {
                                 price: ((100000000 * 88) - update.id) as f32 * 0.01,
                                 size: update.size.unwrap_or(0) as f32,
                                 seq: 0,
                                 ts: 0,
-                                event: orderbook::TRADE,
+                                event: is_bid ^ is_trade,
                             };
                         },
                         _ => {}
