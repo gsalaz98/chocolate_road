@@ -93,8 +93,6 @@ impl Exchange {
 pub trait AssetExchange {
     /// Require that each asset exchange we define have defaults
     fn default_settings() -> Self;
-    /// Parses the snapshot passed as a generic T type
-    fn snapshot<T>(&self, snap: T);
     /// Start and run the websocket data collection
     fn run(settings: Option<&Self>);
 }

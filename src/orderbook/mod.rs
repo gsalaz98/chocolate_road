@@ -3,6 +3,8 @@ use chrono::prelude::*;
 use rayon::prelude::*;
 use exchange::Asset;
 
+pub mod tectonic;
+
 /// Insertion event (i.e. new order)
 pub const INSERT: u8 = 1;
 /// Order cancelation
@@ -19,7 +21,7 @@ pub const BID: u8 = 1 << 5;
 
 /// Contains all the necessary parts to reconstruct an orderbook. Deltas are the incremental changes
 /// that happen to the orderbook over time. Deltas are the primary way that orderbooks are updated.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Delta {
     /// Level price
     pub price: f32,
@@ -28,7 +30,7 @@ pub struct Delta {
     /// Sequence count
     pub seq: u32,
     /// Timestamp -- This is `u32` because `tectonicdb` expects `u32` for timestamp as UNIX epoch time
-    pub ts: u32,
+    pub ts: f32,
     /// Encodes two pieces of information using bitwise flags -- The order side (bid/ask), and the event that occured.
     pub event: u8,
 }

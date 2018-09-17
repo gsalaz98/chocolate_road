@@ -101,7 +101,7 @@ struct BitMEXData {
     /// Price comes encoded in this value.
     id: u64,
     /// Order size. If not present, then it is a level removal
-    size: Option<u64>,
+    size: Option<f32>,
     /// Only present on insert and snapshot events
     price: Option<f32>
 }
@@ -123,15 +123,12 @@ impl AssetExchange for WSExchange {
                 end_date: None,
             },
 
-            single_channels: vec!["trade".into()],
+            single_channels: vec![],
             dual_channels: HashMap::new(),
         };
+        //settings.dual_channels.insert("trade".into(), "XBTUSD".into());
         settings.dual_channels.insert("orderBookL2".into(), "XBTUSD".into());
-
         settings
-    }
-
-    fn snapshot<S>(&self, snap: S) {
     }
 
     fn run(settings: Option<&Self>) {
@@ -169,40 +166,61 @@ impl AssetExchange for WSExchange {
 
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
-        let msg = String::new();
+        let mut msg = String::new();
 
-        msg.push_str("")
+        msg.push_str(r#"{"op": "subscribe", "args": ["#);
+
+        for (idx, channel) in self.single_channels.iter().enumerate() {
+            msg.push('"');
+            msg.push_str(channel.as_str());
+            msg.push('"');
+
+            // Adds comma if we have another value in this iterator or in `dual_channels`
+            if idx != channel.len() - 1 || self.dual_channels.len() > 0 {
+                msg.push_str(", ");
+            }
+        }
+
+        for (idx, (key, value)) in self.dual_channels.iter().enumerate() {
+            msg.push('"');
+            msg.push_str(key.as_str());
+            msg.push(':');
+            msg.push_str(value.as_str());
+            msg.push('"');
+
+            // Add comma if we haven't hit our final pair
+            if idx != self.dual_channels.len() - 1 {
+                msg.push_str(", ");
+            }
+        }
+        msg.push_str("]}");
+
+        // Send our constructed message to the server
+        self.out.send(msg)
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
         match serde_json::from_str::<BitMEXMessage>(&msg.into_text().unwrap()) {
             Ok(message) => {
-                if message.action == "partial" {
-                    return Ok(())
-                }
                 for update in message.data {
-                    match update.symbol.as_str() {
-                        XBTUSD => {
-                            let is_bid = match update.side == "Buy" {
-                                true => orderbook::BID,
-                                false => orderbook::ASK,
-                            };
-
-                            let is_trade = match message.action == "Trade" {
-                                true => orderbook::TRADE,
-                                false => orderbook::UPDATE,
-                            };
-                            orderbook::Delta {
-                                price: ((100000000 * 88) - update.id) as f32 * 0.01,
-                                size: update.size.unwrap_or(0) as f32,
-                                seq: 0,
-                                ts: 0,
-                                event: is_bid ^ is_trade,
-                            };
-                        },
-                        _ => {}
-                    }
+                    let is_bid = match update.side == "Buy" {
+                        true => orderbook::BID,
+                        false => orderbook::ASK,
+                    };
+                    let is_trade = match message.action == "Trade" {
+                        true => orderbook::TRADE,
+                        false => orderbook::UPDATE,
+                    };
+ 
+                    let delta = orderbook::Delta {
+                        price: (8800000000 - update.id) as f32 * 0.01,
+                        size: update.size.unwrap_or(0.0),
+                        seq: 0,
+                        ts: Utc::now().timestamp_millis() as f32 * 0.001,
+                        event: is_bid ^ is_trade,
+                    };
                 }
+                
                 return Ok(())
             },
 
