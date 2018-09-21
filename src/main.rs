@@ -13,10 +13,12 @@
 
 #![deny(missing_docs)]
 #![feature(vec_remove_item)]
+#![feature(nll)]
 
 extern crate chrono;
 extern crate ndarray;
 extern crate rayon;
+extern crate reqwest;
 extern crate serde_json;
 extern crate strum;
 extern crate url;

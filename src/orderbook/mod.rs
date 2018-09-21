@@ -3,6 +3,7 @@ use chrono::prelude::*;
 use rayon::prelude::*;
 use exchange::Asset;
 
+/// TectonicDB client bindings
 pub mod tectonic;
 
 /// Insertion event (i.e. new order)
@@ -29,10 +30,11 @@ pub struct Delta {
     pub size: f32,
     /// Sequence count
     pub seq: u32,
-    /// Timestamp -- This is `u32` because `tectonicdb` expects `u32` for timestamp as UNIX epoch time
-    pub ts: f32,
     /// Encodes two pieces of information using bitwise flags -- The order side (bid/ask), and the event that occured.
     pub event: u8,
+    /// Timestamp -- This is `u32` because `tectonicdb` expects `u32` for timestamp as UNIX epoch time
+    pub ts: f64,
+
 }
 
 /// Before we can start applying deltas, we must have a snapshot to build off of. This is the initial state of the

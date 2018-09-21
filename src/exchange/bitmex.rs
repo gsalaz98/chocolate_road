@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::prelude::*;
+use reqwest;
 use serde_json;
 use url::Url;
 use ws;
@@ -8,10 +9,6 @@ use ws::{Error, Handler, Handshake, Message, Sender};
 
 use orderbook;
 use super::AssetExchange;
-
-const UPDATE_STR: &str = "update";
-const PARTIAL_STR: &str = "partial";
-const XBTUSD: &str = "XBTUSD";
 
 /// Exchange related metadata. The fields are used to establish
 /// a successful connection with the exchange via websockets.
@@ -26,7 +23,7 @@ pub struct WSExchange {
     /// Indicate whether or not we've received the snapshot message yet
     snapshot_received: bool,
 
-    /// Optional function that can be called as a callback per message received.
+    // /// Optional function that can be called as a callback per message received.
     //callback: Option<Box<Fn(&orderbook::Delta)>>,
 
     /// Collection metadata
@@ -36,6 +33,14 @@ pub struct WSExchange {
     single_channels: Vec<String>,
     /// Channel name as map key/value pair
     dual_channels: HashMap<String, String>,
+
+    /// BitMEX requires asset indexes to calculate asset price
+    asset_indexes: HashMap<String, u64>,
+    /// Allows us to calculate the price of a given asset in combination with [`asset_indexes`]
+    asset_tick_size: HashMap<String, f32>,
+
+    /// TectonicDB connection
+    tectonic: orderbook::tectonic::TectonicConnection,
 }
 
 /// Create two identical structs and transfer the data over when we start the websocket.
@@ -61,6 +66,14 @@ pub struct WSExchangeSender {
     single_channels: Vec<String>,
     /// Channel name as map key/value pair
     dual_channels: HashMap<String, String>,
+
+    /// BitMEX requires asset indexes to calculate asset price
+    asset_indexes: HashMap<String, u64>,
+    /// Allows us to calculate the price of a given asset in combination with [`asset_indexes`]
+    asset_tick_size: HashMap<String, f32>,
+
+    /// TectonicDB connection
+    tectonic: orderbook::tectonic::TectonicConnection,
 
     /// Websocket sender
     out: Sender,
@@ -99,11 +112,18 @@ struct BitMEXData {
     /// Orderbook side (bid/ask)
     side: String,
     /// Price comes encoded in this value.
-    id: u64,
+    id: Option<u64>,
     /// Order size. If not present, then it is a level removal
     size: Option<f32>,
     /// Only present on insert and snapshot events
     price: Option<f32>
+}
+
+#[derive(Serialize, Deserialize)]
+struct AssetInformation {
+    symbol: String,
+    timestamp: String,
+    tickSize: f32,
 }
 
 impl AssetExchange for WSExchange {
@@ -125,8 +145,13 @@ impl AssetExchange for WSExchange {
 
             single_channels: vec![],
             dual_channels: HashMap::new(),
+
+            asset_indexes: HashMap::new(),
+            asset_tick_size: HashMap::new(),
+
+            tectonic: orderbook::tectonic::TectonicConnection::new(None, None).expect("Unable to connect to TectonicDB"),
         };
-        //settings.dual_channels.insert("trade".into(), "XBTUSD".into());
+        settings.dual_channels.insert("trade".into(), "XBTUSD".into());
         settings.dual_channels.insert("orderBookL2".into(), "XBTUSD".into());
         settings
     }
@@ -158,9 +183,14 @@ impl AssetExchange for WSExchange {
             single_channels: settings.single_channels.clone(),
             dual_channels: settings.dual_channels.clone(),
             
+            asset_indexes: settings.asset_indexes.clone(),
+            asset_tick_size: settings.asset_tick_size.clone(),
+
+            tectonic: settings.tectonic.clone(),
+
             out
 
-        }).unwrap();
+        }).expect("Failed to establish websocket connection");
     }
 }
 
@@ -195,14 +225,47 @@ impl Handler for WSExchangeSender {
         }
         msg.push_str("]}");
 
+        // Now that we've built our message, let's get the indicies of the assets we can trade
+        let response: Vec<AssetInformation> = reqwest::get("https://www.bitmex.com/api/v1/instrument?columns=symbol,tickSize&start=0&count=500")
+            .expect("Failed to send request")
+            .json()
+            .expect("Failed to serialize response to JSON");
+
+        for (index, asset) in response.iter().enumerate() {
+            self.asset_indexes.insert(asset.symbol.clone(), index as u64);
+            self.asset_tick_size.insert(asset.symbol.clone(), asset.tickSize);
+
+            if !self.tectonic.exists(format!("bitmex_{}", asset.symbol.clone()))? {
+                // Create tectonic database if it doesn't exist yet. This avoids many issues
+                // relating to inserting to a non-existant database.
+                let _ = self.tectonic.create(format!("bitmex_{}", asset.symbol.clone()));
+            }
+        }
+
         // Send our constructed message to the server
         self.out.send(msg)
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
-        match serde_json::from_str::<BitMEXMessage>(&msg.into_text().unwrap()) {
+        match serde_json::from_str::<BitMEXMessage>(&msg.into_text().expect("Failed to convert message to text")) {
             Ok(message) => {
+                if message.table == "" || message.table == "partial" {
+                    return Ok(())
+                }
+                // Define a timestamp for the messages received
+                let ts = Utc::now().timestamp_millis() as f64 * 0.001f64;
+                let msg_length = message.data.len();
+                let mut deltas: Vec<orderbook::Delta> = Vec::with_capacity(msg_length);
+                let mut symbol: String = String::new();
+
+                println!("{:?}", message.data);
+
                 for update in message.data {
+                    // Let's make sure we don't parse any values with no ID
+                    if update.id.is_none() {
+                        continue;
+                    }
+
                     let is_bid = match update.side == "Buy" {
                         true => orderbook::BID,
                         false => orderbook::ASK,
@@ -211,21 +274,38 @@ impl Handler for WSExchangeSender {
                         true => orderbook::TRADE,
                         false => orderbook::UPDATE,
                     };
- 
-                    let delta = orderbook::Delta {
-                        price: (8800000000 - update.id) as f32 * 0.01,
-                        size: update.size.unwrap_or(0.0),
-                        seq: 0,
-                        ts: Utc::now().timestamp_millis() as f32 * 0.001,
-                        event: is_bid ^ is_trade,
+
+                    let delta = if update.symbol == "XBTUSD" {
+                        orderbook::Delta {
+                            price: (8800000000 - update.id.unwrap()) as f32 * 0.01,
+                            size: update.size.unwrap_or(0.0),
+                            seq: 0,
+                            event: is_bid ^ is_trade,
+                            ts,
+                        }
+                    } else {
+                        orderbook::Delta {
+                            price: ((100000000 * self.asset_indexes[&update.symbol]) - update.id.unwrap()) as f32 * self.asset_tick_size[&update.symbol],
+                            size: update.size.unwrap_or(0.0),
+                            seq: 0,
+                            event: is_bid ^ is_trade,
+                            ts,
+                        }
                     };
+                    
+                    deltas.push(delta);
+                    symbol = update.symbol;
                 }
+
+                // TODO: consider using a ZeroMQ server here to offload the work to another service
+                let _ = self.tectonic.bulk_add_into(format!("bitmex_{}", symbol), &deltas)
+                    .expect(format!("Failed to write to db. Symbol = bitmex_{}", symbol).as_str());
                 
                 return Ok(())
             },
 
             Err(e) => {
-                println!("{}", e);
+                println!("Error encountered: {}", e);
                 return Ok(())
             },
         }
