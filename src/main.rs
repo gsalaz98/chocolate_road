@@ -18,6 +18,7 @@
 extern crate chrono;
 extern crate ndarray;
 extern crate rayon;
+extern crate redis;
 extern crate reqwest;
 extern crate serde_json;
 extern crate strum;

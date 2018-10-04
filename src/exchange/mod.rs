@@ -92,7 +92,7 @@ impl Exchange {
 /// Skeleton methods that we expect all exchanges to implement
 pub trait AssetExchange {
     /// Require that each asset exchange we define have defaults
-    fn default_settings() -> Self;
+    fn default_settings() -> Result<Box<Self>, String>;
     /// Start and run the websocket data collection
     fn run(settings: Option<&Self>);
 }

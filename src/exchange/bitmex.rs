@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::prelude::*;
+use redis::{self, Commands};
 use reqwest;
 use serde_json;
-use url::Url;
 use ws;
 use ws::{Error, Handler, Handshake, Message, Sender};
 
@@ -12,6 +12,7 @@ use super::AssetExchange;
 
 /// Exchange related metadata. The fields are used to establish
 /// a successful connection with the exchange via websockets.
+#[derive(Clone)]
 pub struct WSExchange {
     /// Host - Can be domain name or IP address
     host: String,
@@ -41,6 +42,8 @@ pub struct WSExchange {
 
     /// TectonicDB connection
     tectonic: orderbook::tectonic::TectonicConnection,
+
+    r: redis::Client,
 }
 
 /// Create two identical structs and transfer the data over when we start the websocket.
@@ -74,6 +77,8 @@ pub struct WSExchangeSender {
 
     /// TectonicDB connection
     tectonic: orderbook::tectonic::TectonicConnection,
+    /// Redis client (used to send deltas as PUBSUB)
+    r: redis::Connection,
 
     /// Websocket sender
     out: Sender,
@@ -127,7 +132,7 @@ struct AssetInformation {
 }
 
 impl AssetExchange for WSExchange {
-    fn default_settings() -> Self {
+    fn default_settings() -> Result<Box<Self>, String> {
         let mut settings = Self {
             host: "wss://www.bitmex.com".into(),
             port: None,
@@ -150,16 +155,18 @@ impl AssetExchange for WSExchange {
             asset_tick_size: HashMap::new(),
 
             tectonic: orderbook::tectonic::TectonicConnection::new(None, None).expect("Unable to connect to TectonicDB"),
+            r: redis::Client::open("redis://localhost").unwrap(),
         };
         settings.dual_channels.insert("trade".into(), "XBTUSD".into());
         settings.dual_channels.insert("orderBookL2".into(), "XBTUSD".into());
-        settings
+
+        Ok(Box::new(settings))
     }
 
     fn run(settings: Option<&Self>) {
-        let default_ws = WSExchange::default_settings();
         let mut connect_url = String::new();
-        let settings = settings.unwrap_or(&default_ws);
+        // Try to use the settings the user passes before resorting to default settings.
+        let settings = settings.cloned().unwrap_or(*WSExchange::default_settings().unwrap());
 
         connect_url.push_str(settings.host.as_str());
         
@@ -187,8 +194,10 @@ impl AssetExchange for WSExchange {
             asset_tick_size: settings.asset_tick_size.clone(),
 
             tectonic: settings.tectonic.clone(),
+            r: settings.r.clone().get_connection().expect("Failed to open redis connection"),
 
-            out
+            out,
+
 
         }).expect("Failed to establish websocket connection");
     }
@@ -297,10 +306,6 @@ impl Handler for WSExchangeSender {
                     symbol = update.symbol;
                 }
 
-                // TODO: consider using a ZeroMQ server here to offload the work to another service
-                let _ = self.tectonic.bulk_add_into(format!("bitmex_{}", symbol), &deltas)
-                    .expect(format!("Failed to write to db. Symbol = bitmex_{}", symbol).as_str());
-                
                 return Ok(())
             },
 

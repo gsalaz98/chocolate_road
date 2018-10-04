@@ -160,3 +160,18 @@ impl TectonicConnection {
             db_name))
     }
 }
+
+impl Clone for TectonicConnection {
+    fn clone(&self) -> Self {
+        Self {
+            host: self.host.clone(),
+            port: self.port.clone(), 
+
+            connection: self.connection
+                .try_clone()
+                .expect("Failed to clone Tectonic TCP Connection"),
+
+            db: self.db.clone(),
+        }
+    }
+}
