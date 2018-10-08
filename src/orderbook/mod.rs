@@ -22,7 +22,7 @@ pub const BID: u8 = 1 << 5;
 
 /// Contains all the necessary parts to reconstruct an orderbook. Deltas are the incremental changes
 /// that happen to the orderbook over time. Deltas are the primary way that orderbooks are updated.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delta {
     /// Level price
     pub price: f32,

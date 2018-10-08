@@ -2,6 +2,7 @@
 pub mod bitmex;
 
 use strum::AsStaticRef;
+use redis;
 use orderbook;
 
 /// Complete list of all the exchanges we support. This is also used as a unique
@@ -93,6 +94,8 @@ impl Exchange {
 pub trait AssetExchange {
     /// Require that each asset exchange we define have defaults
     fn default_settings() -> Result<Box<Self>, String>;
+    /// Initializes the redis connection
+    fn init_redis(&mut self) -> Result<redis::Connection, redis::RedisError>;
     /// Start and run the websocket data collection
     fn run(settings: Option<&Self>);
 }

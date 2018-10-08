@@ -15,35 +15,38 @@ use super::AssetExchange;
 #[derive(Clone)]
 pub struct WSExchange {
     /// Host - Can be domain name or IP address
-    host: String,
+    pub host: String,
     /// Port - Optional value. If no value is provided, the final URL won't have a port specified
-    port: Option<u16>,
+    pub port: Option<u16>,
     /// Custom path for connection. Is appended at the end of a URL if present. Do not add trailing forward-slash.
-    conn_path: Option<String>,
+    pub conn_path: Option<String>,
 
     /// Indicate whether or not we've received the snapshot message yet
-    snapshot_received: bool,
+    pub snapshot_received: bool,
 
     // /// Optional function that can be called as a callback per message received.
     //callback: Option<Box<Fn(&orderbook::Delta)>>,
 
     /// Collection metadata
-    metadata: MetaData,
+    pub metadata: MetaData,
 
     /// Channel name with no argument we want to subscribe to
-    single_channels: Vec<String>,
+    pub single_channels: Vec<String>,
     /// Channel name as map key/value pair
-    dual_channels: HashMap<String, String>,
+    pub dual_channels: HashMap<String, String>,
 
     /// BitMEX requires asset indexes to calculate asset price
-    asset_indexes: HashMap<String, u64>,
+    pub asset_indexes: HashMap<String, u64>,
     /// Allows us to calculate the price of a given asset in combination with [`asset_indexes`]
-    asset_tick_size: HashMap<String, f32>,
+    pub asset_tick_size: HashMap<String, f32>,
 
     /// TectonicDB connection
-    tectonic: orderbook::tectonic::TectonicConnection,
+    pub tectonic: orderbook::tectonic::TectonicConnection,
 
-    r: redis::Client,
+    /// Redis client (before connection)
+    pub r: redis::Client,
+    /// Redis password: If this is present, we will send an AUTH message to the server on connect
+    pub r_password: Option<String>,
 }
 
 /// Create two identical structs and transfer the data over when we start the websocket.
@@ -156,6 +159,7 @@ impl AssetExchange for WSExchange {
 
             tectonic: orderbook::tectonic::TectonicConnection::new(None, None).expect("Unable to connect to TectonicDB"),
             r: redis::Client::open("redis://localhost").unwrap(),
+            r_password: None,
         };
         settings.dual_channels.insert("trade".into(), "XBTUSD".into());
         settings.dual_channels.insert("orderBookL2".into(), "XBTUSD".into());
@@ -163,10 +167,25 @@ impl AssetExchange for WSExchange {
         Ok(Box::new(settings))
     }
 
+    fn init_redis(&mut self) -> Result<redis::Connection, redis::RedisError> {
+        let redis_connection = self.r.clone()
+            .get_connection()
+            .unwrap();
+
+        // Send an auth message if we have a password
+        match &self.r_password {
+            Some(password) => redis::cmd("AUTH").arg(password)
+                .execute(&redis_connection),
+            None => (),
+        };
+
+        Ok(redis_connection)
+    }
+
     fn run(settings: Option<&Self>) {
         let mut connect_url = String::new();
         // Try to use the settings the user passes before resorting to default settings.
-        let settings = settings.cloned().unwrap_or(*WSExchange::default_settings().unwrap());
+        let mut settings = settings.cloned().unwrap_or(*WSExchange::default_settings().unwrap());
 
         connect_url.push_str(settings.host.as_str());
         
@@ -194,11 +213,9 @@ impl AssetExchange for WSExchange {
             asset_tick_size: settings.asset_tick_size.clone(),
 
             tectonic: settings.tectonic.clone(),
-            r: settings.r.clone().get_connection().expect("Failed to open redis connection"),
+            r: settings.init_redis().expect("Failed to connect to Redis server."),
 
             out,
-
-
         }).expect("Failed to establish websocket connection");
     }
 }
@@ -303,8 +320,10 @@ impl Handler for WSExchangeSender {
                     };
                     
                     deltas.push(delta);
-                    symbol = update.symbol;
                 }
+                let _ = self.r
+                    .publish::<&str, &str, u8>("bitmex", &serde_json::to_string(&deltas).unwrap())
+                    .expect("Failed to publish message to redis PUBSUB");
 
                 return Ok(())
             },

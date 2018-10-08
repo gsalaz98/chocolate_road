@@ -37,9 +37,14 @@ pub mod orderbook;
 /// Unit tests for various parts of this project
 pub mod tests;
 
+use std::env;
 use exchange::AssetExchange;
 use exchange::bitmex;
 
 fn main() {
-    bitmex::WSExchange::run(None);
+    let mut settings = bitmex::WSExchange::default_settings().unwrap();
+    settings.r = redis::Client::open("redis://127.0.0.1:6379/0").unwrap();
+    settings.r_password = Some(env::var("REDIS_AUTH").expect("Failed to set REDIS_AUTH environment variable"));
+
+    bitmex::WSExchange::run(Some(&*settings));
 }
