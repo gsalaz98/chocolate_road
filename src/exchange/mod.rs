@@ -1,3 +1,5 @@
+/// Binance exchange
+pub mod binance;
 /// BitMEX exchange module
 pub mod bitmex;
 

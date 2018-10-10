@@ -35,11 +35,6 @@ pub struct WSExchange {
     /// Channel name as map key/value pair
     pub dual_channels: HashMap<String, String>,
 
-    /// BitMEX requires asset indexes to calculate asset price
-    pub asset_indexes: HashMap<String, u64>,
-    /// Allows us to calculate the price of a given asset in combination with [`asset_indexes`]
-    pub asset_tick_size: HashMap<String, f32>,
-
     /// TectonicDB connection
     pub tectonic: orderbook::tectonic::TectonicConnection,
 
@@ -72,11 +67,6 @@ pub struct WSExchangeSender {
     single_channels: Vec<String>,
     /// Channel name as map key/value pair
     dual_channels: HashMap<String, String>,
-
-    /// BitMEX requires asset indexes to calculate asset price
-    asset_indexes: HashMap<String, u64>,
-    /// Allows us to calculate the price of a given asset in combination with [`asset_indexes`]
-    asset_tick_size: HashMap<String, f32>,
 
     /// TectonicDB connection
     tectonic: orderbook::tectonic::TectonicConnection,
@@ -154,9 +144,6 @@ impl AssetExchange for WSExchange {
             single_channels: vec![],
             dual_channels: HashMap::new(),
 
-            asset_indexes: HashMap::new(),
-            asset_tick_size: HashMap::new(),
-
             tectonic: orderbook::tectonic::TectonicConnection::new(None, None).expect("Unable to connect to TectonicDB"),
             r: redis::Client::open("redis://localhost").unwrap(),
             r_password: None,
@@ -209,9 +196,6 @@ impl AssetExchange for WSExchange {
             single_channels: settings.single_channels.clone(),
             dual_channels: settings.dual_channels.clone(),
             
-            asset_indexes: settings.asset_indexes.clone(),
-            asset_tick_size: settings.asset_tick_size.clone(),
-
             tectonic: settings.tectonic.clone(),
             r: settings.init_redis().expect("Failed to connect to Redis server."),
 
@@ -222,114 +206,10 @@ impl AssetExchange for WSExchange {
 
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
-        let mut msg = String::new();
-
-        msg.push_str(r#"{"op": "subscribe", "args": ["#);
-
-        for (idx, channel) in self.single_channels.iter().enumerate() {
-            msg.push('"');
-            msg.push_str(channel.as_str());
-            msg.push('"');
-
-            // Adds comma if we have another value in this iterator or in `dual_channels`
-            if idx != channel.len() - 1 || self.dual_channels.len() > 0 {
-                msg.push_str(", ");
-            }
-        }
-
-        for (idx, (key, value)) in self.dual_channels.iter().enumerate() {
-            msg.push('"');
-            msg.push_str(key.as_str());
-            msg.push(':');
-            msg.push_str(value.as_str());
-            msg.push('"');
-
-            // Add comma if we haven't hit our final pair
-            if idx != self.dual_channels.len() - 1 {
-                msg.push_str(", ");
-            }
-        }
-        msg.push_str("]}");
-
-        // Now that we've built our message, let's get the indicies of the assets we can trade
-        let response: Vec<AssetInformation> = reqwest::get("https://www.bitmex.com/api/v1/instrument?columns=symbol,tickSize&start=0&count=500")
-            .expect("Failed to send request")
-            .json()
-            .expect("Failed to serialize response to JSON");
-
-        for (index, asset) in response.iter().enumerate() {
-            self.asset_indexes.insert(asset.symbol.clone(), index as u64);
-            self.asset_tick_size.insert(asset.symbol.clone(), asset.tickSize);
-
-            if !self.tectonic.exists(format!("bitmex_{}", asset.symbol.clone()))? {
-                // Create tectonic database if it doesn't exist yet. This avoids many issues
-                // relating to inserting to a non-existant database.
-                let _ = self.tectonic.create(format!("bitmex_{}", asset.symbol.clone()));
-            }
-        }
-
-        // Send our constructed message to the server
-        self.out.send(msg)
+        Ok(())
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
-        match serde_json::from_str::<BitMEXMessage>(&msg.into_text().expect("Failed to convert message to text")) {
-            Ok(message) => {
-                if message.table == "" || message.table == "partial" {
-                    return Ok(())
-                }
-                // Define a timestamp for the messages received
-                let ts = Utc::now().timestamp_millis() as f64 * 0.001f64;
-                let msg_length = message.data.len();
-                let mut deltas: Vec<orderbook::Delta> = Vec::with_capacity(msg_length);
-                let mut symbol: String = String::new();
-
-                for update in message.data {
-                    // Let's make sure we don't parse any values with no ID
-                    if update.id.is_none() {
-                        continue;
-                    }
-
-                    let is_bid = match update.side == "Buy" {
-                        true => orderbook::BID,
-                        false => orderbook::ASK,
-                    };
-                    let is_trade = match message.action == "Trade" {
-                        true => orderbook::TRADE,
-                        false => orderbook::UPDATE,
-                    };
-
-                    let delta = if update.symbol == "XBTUSD" {
-                        orderbook::Delta {
-                            price: (8800000000 - update.id.unwrap()) as f32 * 0.01,
-                            size: update.size.unwrap_or(0.0),
-                            seq: 0,
-                            event: is_bid ^ is_trade,
-                            ts,
-                        }
-                    } else {
-                        orderbook::Delta {
-                            price: ((100000000 * self.asset_indexes[&update.symbol]) - update.id.unwrap()) as f32 * self.asset_tick_size[&update.symbol],
-                            size: update.size.unwrap_or(0.0),
-                            seq: 0,
-                            event: is_bid ^ is_trade,
-                            ts,
-                        }
-                    };
-                    
-                    deltas.push(delta);
-                }
-                let _ = self.r
-                    .publish::<&str, &str, u8>("bitmex", &serde_json::to_string(&deltas).unwrap())
-                    .expect("Failed to publish message to redis PUBSUB");
-
-                return Ok(())
-            },
-
-            Err(e) => {
-                println!("Error encountered: {}", e);
-                return Ok(())
-            },
-        }
+        Ok(())
     }
 }

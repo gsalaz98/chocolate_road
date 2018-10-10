@@ -38,13 +38,22 @@ pub mod orderbook;
 pub mod tests;
 
 use std::env;
+use std::thread;
 use exchange::AssetExchange;
-use exchange::bitmex;
+use exchange::{binance, bitmex};
 
 fn main() {
-    let mut settings = bitmex::WSExchange::default_settings().unwrap();
-    settings.r = redis::Client::open("redis://127.0.0.1:6379/0").unwrap();
-    settings.r_password = Some(env::var("REDIS_AUTH").expect("Failed to set REDIS_AUTH environment variable"));
+    let r = redis::Client::open("redis://127.0.0.1:6379/0").unwrap();
+    let r_password = Some(env::var("REDIS_AUTH").expect("Failed to get REDIS_AUTH environment variable"));
+    let mut exchanges = vec![];
 
-    bitmex::WSExchange::run(Some(&*settings));
+    let mut bitmex_settings = *bitmex::WSExchange::default_settings().unwrap();
+    bitmex_settings.r = r.clone();
+    bitmex_settings.r_password = Some(r_password.as_ref().unwrap().clone());
+
+    exchanges.push(thread::spawn(move || bitmex::WSExchange::run(Some(&bitmex_settings))));
+
+    for exchange in exchanges {
+        let _ = exchange.join();
+    }
 }
