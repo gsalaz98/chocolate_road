@@ -2,6 +2,8 @@
 pub mod binance;
 /// BitMEX exchange module
 pub mod bitmex;
+/// GDAX managed by level 2 orderbook
+pub mod gdax_l2;
 
 use strum::AsStaticRef;
 use redis;
@@ -33,7 +35,7 @@ impl Exchange {
     pub fn market_first(&self) -> bool {
         match &self {
             Exchange::Poloniex => true,
-            Exchange::GDAX => true,
+            Exchange::GDAX => false,
             Exchange::BitMEX => false,
         }
     }
@@ -49,7 +51,7 @@ impl Exchange {
 
     /// This function takes the asset, and converts it to its representation on an exchange.
     /// Example: Bitcoin is annotated as `BTC` on Poloniex, but appears as `XBT` in BitMEX.
-    pub fn normalize_asset(&self, asset: Asset) -> Option<String> {
+    pub fn normalize_asset(&self, asset: &Asset) -> Option<String> {
         match self {
             Exchange::Poloniex => match asset {
                 Asset::BTC => Some("BTC".into()),
@@ -166,21 +168,21 @@ pub enum FuturesAsset {
 /// Helper function that takes in the assets you want to trade as a `MARKET, ASSET` vector pair.
 /// Depending on the exchange and whether the exchange chooses to flip around these values, we
 /// format it according to the exchange's configuration
-pub fn get_asset_pair(assets: &Vec<Asset>, exch: Exchange) -> String {
+pub fn get_asset_pair(assets: &[Asset; 2], exch: Exchange) -> String {
     match exch.market_first() {
         true => {
-            let mut pair = String::with_capacity(9);
-            pair.push_str(assets[0].as_static());
+            let mut pair = String::with_capacity(16);
+            pair.push_str(&exch.normalize_asset(&assets[1]).unwrap());
             pair.push_str(exch.asset_separator().as_str());
-            pair.push_str(assets[1].as_static());
+            pair.push_str(&exch.normalize_asset(&assets[0]).unwrap());
 
             pair
         },
         false => {
-            let mut pair = String::with_capacity(9);
-            pair.push_str(assets[1].as_static());
+            let mut pair = String::with_capacity(16);
+            pair.push_str(&exch.normalize_asset(&assets[0]).unwrap());
             pair.push_str(exch.asset_separator().as_str());
-            pair.push_str(assets[0].as_static());
+            pair.push_str(&exch.normalize_asset(&assets[1]).unwrap());
 
             pair
         }
@@ -192,18 +194,18 @@ pub fn get_batch_asset_pairs(assets: &Vec<[Asset; 2]>, exch: Exchange) -> Vec<St
     assets.into_iter().map(|asset_pair| {
         match exch.market_first() {
             true => {
-                let mut pair = String::with_capacity(9);
-                pair.push_str(asset_pair[0].as_static());
+                let mut pair = String::with_capacity(16);
+                pair.push_str(&exch.normalize_asset(&asset_pair[1]).unwrap());
                 pair.push_str(exch.asset_separator().as_str());
-                pair.push_str(asset_pair[1].as_static());
+                pair.push_str(&exch.normalize_asset(&asset_pair[0]).unwrap());
 
                 pair
             },
             false => {
-                let mut pair = String::with_capacity(9);
-                pair.push_str(asset_pair[1].as_static());
+                let mut pair = String::with_capacity(16);
+                pair.push_str(&exch.normalize_asset(&asset_pair[0]).unwrap());
                 pair.push_str(exch.asset_separator().as_str());
-                pair.push_str(asset_pair[0].as_static());
+                pair.push_str(&exch.normalize_asset(&asset_pair[1]).unwrap());
 
                 pair
             }

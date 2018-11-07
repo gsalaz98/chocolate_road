@@ -1,5 +1,6 @@
 use std::net::TcpStream;
 use std::io::{Error, Read, Write};
+use std::time::Duration;
 use std::str;
 
 use orderbook::{self, Delta};
@@ -19,7 +20,7 @@ pub struct TectonicConnection {
 }
 
 impl TectonicConnection {
-    /// Attempt to clone the struct into a new instance of itself
+    /// Clones the structure
     pub fn clone(&self) -> Self {
         Self {
             host: self.host.clone(),
@@ -36,7 +37,9 @@ impl TectonicConnection {
         let port = port.unwrap_or(9001);
 
         let connect_address = format!("{}:{}", host, port);
-        let connection = TcpStream::connect(connect_address)?;
+
+        // Set socket timeout to 1s
+        let connection = TcpStream::connect_timeout(&connect_address.parse().unwrap(), Duration::new(1,0))?;
         
         return Ok(TectonicConnection {
             host,

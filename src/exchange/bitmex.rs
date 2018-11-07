@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::thread;
+use std::ops::Deref;
+use std::sync::{Arc, Mutex, RwLock};
 
 use chrono::prelude::*;
 use redis::{self, Commands};
@@ -7,8 +10,8 @@ use serde_json;
 use ws;
 use ws::{Error, Handler, Handshake, Message, Sender};
 
+use exchange::{self, Asset, AssetExchange, Exchange};
 use orderbook;
-use super::AssetExchange;
 
 /// Exchange related metadata. The fields are used to establish
 /// a successful connection with the exchange via websockets.
@@ -24,16 +27,13 @@ pub struct WSExchange {
     /// Indicate whether or not we've received the snapshot message yet
     pub snapshot_received: bool,
 
-    // /// Optional function that can be called as a callback per message received.
-    //callback: Option<Box<Fn(&orderbook::Delta)>>,
-
     /// Collection metadata
     pub metadata: MetaData,
 
     /// Channel name with no argument we want to subscribe to
     pub single_channels: Vec<String>,
     /// Channel name as map key/value pair
-    pub dual_channels: HashMap<String, String>,
+    pub dual_channels: Vec<String>,
 
     /// BitMEX requires asset indexes to calculate asset price
     pub asset_indexes: HashMap<String, u64>,
@@ -71,17 +71,17 @@ pub struct WSExchangeSender {
     /// Channel name with no argument we want to subscribe to
     single_channels: Vec<String>,
     /// Channel name as map key/value pair
-    dual_channels: HashMap<String, String>,
+    dual_channels: Vec<String>,
 
     /// BitMEX requires asset indexes to calculate asset price
-    asset_indexes: HashMap<String, u64>,
+    asset_indexes: Arc<RwLock<HashMap<String, u64>>>,
     /// Allows us to calculate the price of a given asset in combination with [`asset_indexes`]
-    asset_tick_size: HashMap<String, f32>,
+    asset_tick_size: Arc<RwLock<HashMap<String, f32>>>,
 
     /// TectonicDB connection
     tectonic: orderbook::tectonic::TectonicConnection,
     /// Redis client (used to send deltas as PUBSUB)
-    r: redis::Connection,
+    r: Arc<Mutex<redis::Connection>>,
 
     /// Websocket sender
     out: Sender,
@@ -92,7 +92,7 @@ pub struct WSExchangeSender {
 #[derive(Clone)]
 pub struct MetaData {
     /// Vector of asset pairs we're going to warehouse
-    asset_pair: Option<Vec<[super::Asset; 2]>>,
+    pub asset_pair: Option<Vec<[exchange::Asset; 2]>>,
 
     /// Starting datetime of our data collection
     start_date: Option<DateTime<Utc>>,
@@ -146,13 +146,14 @@ impl AssetExchange for WSExchange {
             //callback: None,
 
             metadata: MetaData {
-                asset_pair: None,
+                asset_pair: Some(vec![
+                    [Asset::BTC, Asset::USD],]),
                 start_date: None,
                 end_date: None,
             },
 
             single_channels: vec![],
-            dual_channels: HashMap::new(),
+            dual_channels: vec!["orderBookL2".into(), "trade".into()],
 
             asset_indexes: HashMap::new(),
             asset_tick_size: HashMap::new(),
@@ -161,8 +162,6 @@ impl AssetExchange for WSExchange {
             r: redis::Client::open("redis://localhost").unwrap(),
             r_password: None,
         };
-        settings.dual_channels.insert("trade".into(), "XBTUSD".into());
-        settings.dual_channels.insert("orderBookL2".into(), "XBTUSD".into());
 
         Ok(Box::new(settings))
     }
@@ -212,47 +211,41 @@ impl AssetExchange for WSExchange {
             single_channels: settings.single_channels.clone(),
             dual_channels: settings.dual_channels.clone(),
             
-            asset_indexes: settings.asset_indexes.clone(),
-            asset_tick_size: settings.asset_tick_size.clone(),
+            asset_indexes: Arc::new(RwLock::new(settings.asset_indexes.clone())),
+            asset_tick_size: Arc::new(RwLock::new(settings.asset_tick_size.clone())),
 
             tectonic: settings.tectonic.clone(),
-            r: settings.init_redis().expect("Failed to connect to Redis server."),
+            r: Arc::new(Mutex::new(settings.init_redis().expect("Failed to connect to Redis server."))),
 
             out,
         }).expect("Failed to establish websocket connection");
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct BitMEXSubscription {
+    op: String,
+    args: Vec<String>,
+}
+
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
-        let mut msg = String::new();
+        let mut msg = BitMEXSubscription {
+            op: "subscribe".into(),
+            args: vec![],
+        };
 
-        msg.push_str(r#"{"op": "subscribe", "args": ["#);
+        for channel in &self.single_channels {
+            msg.args.push(channel.to_string());
+        }
 
-        for (idx, channel) in self.single_channels.iter().enumerate() {
-            msg.push('"');
-            msg.push_str(channel.as_str());
-            msg.push('"');
-
-            // Adds comma if we have another value in this iterator or in `dual_channels`
-            if idx != channel.len() - 1 || self.dual_channels.len() > 0 {
-                msg.push_str(", ");
+        for key in &self.dual_channels {
+            for pair in self.metadata.asset_pair.as_ref().expect("No assets supplied to BitMEX struct") {
+                msg.args.push(format!("{}:{}", key, exchange::get_asset_pair(pair, Exchange::BitMEX)));
             }
         }
 
-        for (idx, (key, value)) in self.dual_channels.iter().enumerate() {
-            msg.push('"');
-            msg.push_str(key.as_str());
-            msg.push(':');
-            msg.push_str(value.as_str());
-            msg.push('"');
-
-            // Add comma if we haven't hit our final pair
-            if idx != self.dual_channels.len() - 1 {
-                msg.push_str(", ");
-            }
-        }
-        msg.push_str("]}");
+        println!("{}", serde_json::to_string(&msg).unwrap());
 
         // Now that we've built our message, let's get the indicies of the assets we can trade
         let response: Vec<AssetInformation> = reqwest::get("https://www.bitmex.com/api/v1/instrument?columns=symbol,tickSize&start=0&count=500")
@@ -261,8 +254,16 @@ impl Handler for WSExchangeSender {
             .expect("Failed to serialize response to JSON");
 
         for (index, asset) in response.iter().enumerate() {
-            self.asset_indexes.insert(asset.symbol.clone(), index as u64);
-            self.asset_tick_size.insert(asset.symbol.clone(), asset.tickSize);
+            // Dereference Arc and mutate after locking the RwLock
+            self.asset_indexes.deref()
+                .write()
+                .unwrap()
+                .insert(asset.symbol.clone(), index as u64);
+
+            self.asset_tick_size.deref()
+                .write()
+                .unwrap()
+                .insert(asset.symbol.clone(), asset.tickSize);
 
             if !self.tectonic.exists(format!("bitmex_{}", asset.symbol.clone()))? {
                 // Create tectonic database if it doesn't exist yet. This avoids many issues
@@ -272,70 +273,86 @@ impl Handler for WSExchangeSender {
         }
 
         // Send our constructed message to the server
-        self.out.send(msg)
+        self.out.send(serde_json::to_string(&msg).unwrap())
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
-        match serde_json::from_str::<BitMEXMessage>(&msg.into_text().expect("Failed to convert message to text")) {
-            Ok(message) => {
-                if message.table == "" || message.table == "partial" {
-                    return Ok(())
-                }
-                // Define a timestamp for the messages received
-                let ts = Utc::now().timestamp_millis() as f64 * 0.001f64;
-                let msg_length = message.data.len();
-                let mut deltas: Vec<orderbook::Delta> = Vec::with_capacity(msg_length);
-                let mut symbol: String = String::new();
+        let redis_ref = self.r.clone();
+        let asset_tick_ref = self.asset_tick_size.clone();
+        let asset_index_ref = self.asset_indexes.clone();
 
-                for update in message.data {
-                    // Let's make sure we don't parse any values with no ID
-                    if update.id.is_none() {
-                        continue;
+        // Spawn thread to ensure accurate timestamps
+        thread::spawn(move || {
+            match serde_json::from_str::<BitMEXMessage>(&msg.into_text().expect("Failed to convert message to text")) {
+                Ok(message) => {
+                    // Skip snapshots and other misc. data
+                    if message.table == "" || message.table == "partial" {
+                        return;
+                    }
+                    // Define a timestamp for the messages received
+                    let ts = Utc::now().timestamp_millis() as f64 * 0.001f64;
+                    let mut deltas: Vec<orderbook::Delta> = Vec::with_capacity(message.data.len());
+
+                    for update in message.data {
+                        // Let's make sure we don't parse any values with no ID
+                        if update.id.is_none() {
+                            continue;
+                        }
+
+                        let is_bid = match update.side == "Buy" {
+                            true => orderbook::BID,
+                            false => orderbook::ASK,
+                        };
+                        let is_trade = match message.action == "Trade" {
+                            true => orderbook::TRADE,
+                            false => orderbook::UPDATE,
+                        };
+                    
+                        let delta = if update.symbol == "XBTUSD" {
+                            orderbook::Delta {
+                                symbol: String::from("XBTUSD"),
+                                price: (8800000000 - update.id.unwrap()) as f32 * 0.01,
+                                size: update.size.unwrap_or(0.0),
+                                seq: 0,
+                                event: is_bid ^ is_trade,
+                                ts,
+                            }
+                        } else {
+                            // Avoids borrowing [`update.symbol`] by changing the order the elements are assigned
+                            orderbook::Delta {
+                                price: ((100000000 * asset_index_ref.as_ref()
+                                    .read()
+                                    .unwrap()[&update.symbol]) - update.id.unwrap()
+                                ) as f32 * asset_tick_ref.as_ref()
+                                    .read()
+                                    .unwrap()[&update.symbol],
+
+                                symbol: update.symbol,
+                                size: update.size.unwrap_or(0.0),
+                                seq: 0,
+                                event: is_bid ^ is_trade,
+                                ts,
+                            }
+                        };
+
+                        deltas.push(delta);
                     }
 
-                    let is_bid = match update.side == "Buy" {
-                        true => orderbook::BID,
-                        false => orderbook::ASK,
-                    };
-                    let is_trade = match message.action == "Trade" {
-                        true => orderbook::TRADE,
-                        false => orderbook::UPDATE,
-                    };
+                    // Lock the connection until we are able to aquire it
+                    let _ = redis_ref.as_ref()
+                        .lock()
+                        .unwrap()
+                        .publish::<&str, &str, u8>("bitmex", &serde_json::to_string(&deltas).unwrap())
+                        .expect("Failed to publish message to redis PUBSUB");
+                },
 
-                    let delta = if update.symbol == "XBTUSD" {
-                        orderbook::Delta {
-                            symbol: String::from("XBTUSD"),
-                            price: (8800000000 - update.id.unwrap()) as f32 * 0.01,
-                            size: update.size.unwrap_or(0.0),
-                            seq: 0,
-                            event: is_bid ^ is_trade,
-                            ts,
-                        }
-                    } else {
-                        // Avoids borrowing [`update.symbol`] by changing the order the elements are assigned
-                        orderbook::Delta {
-                            price: ((100000000 * self.asset_indexes[&update.symbol]) - update.id.unwrap()) as f32 * self.asset_tick_size[&update.symbol],
-                            symbol: update.symbol,
-                            size: update.size.unwrap_or(0.0),
-                            seq: 0,
-                            event: is_bid ^ is_trade,
-                            ts,
-                        }
-                    };
-                    
-                    deltas.push(delta);
-                }
+                Err(e) => {
+                    println!("Error encountered: {}", e);
+                    return;
+                },
+            }
+        });
 
-                let _ = self.r.publish::<&str, &str, u8>("bitmex", &serde_json::to_string(&deltas).unwrap())
-                    .expect("Failed to publish message to redis PUBSUB");
-
-                Ok(())
-            },
-
-            Err(e) => {
-                println!("Error encountered: {}", e);
-                return Ok(())
-            },
-        }
+        Ok(())
     }
 }

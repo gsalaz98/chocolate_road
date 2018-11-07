@@ -5,6 +5,7 @@ authors = ["Gerardo Salazar <gsalaz9800@gmail.com>"]
 
 [dependencies]
 chrono = "0.4"
+crossbeam = "0.4"
 futures-preview = "0.2.2"
 ndarray = { version = "0.12.0", features = ["blas"] }
 rayon = "1.0"
