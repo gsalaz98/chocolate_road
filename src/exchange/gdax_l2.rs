@@ -103,7 +103,7 @@ impl AssetExchange for WSExchange {
                 end_date: None,
             },
 
-            single_channels: vec![],
+            single_channels: vec!["level2".into()],
 
             tectonic: orderbook::tectonic::TectonicConnection::new(None, None).expect("Unable to connect to TectonicDB"),
             r: redis::Client::open("redis://localhost").unwrap(),
@@ -121,7 +121,6 @@ impl AssetExchange for WSExchange {
         // Send an auth message if we have a password
         match &self.r_password {
             Some(password) => {
-                println!("{}", password);
                 redis::cmd("AUTH").arg(password)
                     .execute(&redis_connection);
             },
@@ -203,6 +202,8 @@ impl Handler for WSExchangeSender {
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
+        println!("{}", msg.into_text().unwrap());
+
         Ok(())
     }
 }

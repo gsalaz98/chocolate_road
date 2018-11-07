@@ -174,7 +174,6 @@ impl AssetExchange for WSExchange {
         // Send an auth message if we have a password
         match &self.r_password {
             Some(password) => {
-                println!("{}", password);
                 redis::cmd("AUTH").arg(password)
                     .execute(&redis_connection);
             },

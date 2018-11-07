@@ -88,7 +88,7 @@ fn main() {
 
     // Start a listener to insert ticks into tectonicdb
     exchanges.push(thread::spawn(move ||
-        listener::listen_and_insert(&r, &mut t)));
+        listener::listen_and_insert(&r, r_password, &mut t)));
 
     for exchange in exchanges {
         let _ = exchange.join();

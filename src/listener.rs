@@ -7,8 +7,14 @@ use orderbook::tectonic;
 
 /// Listens on redis for [`Delta`] ticks and writes them to TectonicDB.
 /// This function is called and ran in its own thread.
-pub fn listen_and_insert(r: &redis::Client, t: &mut tectonic::TectonicConnection) {
+pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>, t: &mut tectonic::TectonicConnection) {
     let mut redis_conn = r.get_connection().unwrap();
+    match r_password {
+        Some(password) => redis::cmd("AUTH").arg(password)
+            .execute(&redis_conn),
+        None => ()
+    }
+
     let mut subscription = redis_conn.as_pubsub();
 
     for exch in exchange::get_supported_exchanges() {
