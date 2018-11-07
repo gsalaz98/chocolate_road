@@ -127,8 +127,8 @@ struct AssetInformation {
 impl AssetExchange for WSExchange {
     fn default_settings() -> Result<Box<Self>, String> {
         let mut settings = Self {
-            host: "wss://www.bitmex.com".into(),
-            port: None,
+            host: "wss://stream.bitmex.com".into(),
+            port: Some(9443),
             conn_path: Some("realtime".into()),
 
             snapshot_received: false,

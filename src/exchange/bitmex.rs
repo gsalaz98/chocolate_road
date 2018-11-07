@@ -174,8 +174,11 @@ impl AssetExchange for WSExchange {
 
         // Send an auth message if we have a password
         match &self.r_password {
-            Some(password) => redis::cmd("AUTH").arg(password)
-                .execute(&redis_connection),
+            Some(password) => {
+                println!("{}", password);
+                redis::cmd("AUTH").arg(password)
+                    .execute(&redis_connection);
+            },
             None => (),
         };
 
@@ -301,6 +304,7 @@ impl Handler for WSExchangeSender {
 
                     let delta = if update.symbol == "XBTUSD" {
                         orderbook::Delta {
+                            symbol: String::from("XBTUSD"),
                             price: (8800000000 - update.id.unwrap()) as f32 * 0.01,
                             size: update.size.unwrap_or(0.0),
                             seq: 0,
@@ -308,8 +312,10 @@ impl Handler for WSExchangeSender {
                             ts,
                         }
                     } else {
+                        // Avoids borrowing [`update.symbol`] by changing the order the elements are assigned
                         orderbook::Delta {
                             price: ((100000000 * self.asset_indexes[&update.symbol]) - update.id.unwrap()) as f32 * self.asset_tick_size[&update.symbol],
+                            symbol: update.symbol,
                             size: update.size.unwrap_or(0.0),
                             seq: 0,
                             event: is_bid ^ is_trade,
@@ -319,11 +325,11 @@ impl Handler for WSExchangeSender {
                     
                     deltas.push(delta);
                 }
-                let _ = self.r
-                    .publish::<&str, &str, u8>("bitmex", &serde_json::to_string(&deltas).unwrap())
+
+                let _ = self.r.publish::<&str, &str, u8>("bitmex", &serde_json::to_string(&deltas).unwrap())
                     .expect("Failed to publish message to redis PUBSUB");
 
-                return Ok(())
+                Ok(())
             },
 
             Err(e) => {

@@ -7,7 +7,16 @@ use strum::AsStaticRef;
 use redis;
 use orderbook;
 
-/// Complete list of all the exchanges we support. This is also used as a unique
+/// Returns the list of supported exchanges as a vector of strings
+pub fn get_supported_exchanges() -> Vec<String> {
+    vec![
+        String::from("poloniex"),
+        String::from("gdax"),
+        String::from("bitmex"),
+    ]
+}
+
+/// Complete list of all the exchanges we support as an enum. This is also used as a unique
 /// identifier to differentiate where the data originated. Is used in the `orderbook` module.
 pub enum Exchange {
     /// Poloniex exchange

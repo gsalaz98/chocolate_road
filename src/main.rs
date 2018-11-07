@@ -32,6 +32,8 @@ extern crate strum_macros;
 
 /// Exchanges and exchange-related methods and modules
 pub mod exchange;
+/// Methods to listen on redis/ZeroMQ sockets. 
+pub mod listener;
 /// Orderbook analytics and state management data structures
 pub mod orderbook;
 /// Unit tests for various parts of this project
@@ -39,19 +41,40 @@ pub mod tests;
 
 use std::env;
 use std::thread;
+use std::net::TcpStream;
+
 use exchange::AssetExchange;
 use exchange::{binance, bitmex};
+use orderbook::tectonic;
 
 fn main() {
+    // Redis client is setup here so that we can provide it a host, password, and database
     let r = redis::Client::open("redis://127.0.0.1:6379/0").unwrap();
-    let r_password = Some(env::var("REDIS_AUTH").expect("Failed to get REDIS_AUTH environment variable"));
-    let mut exchanges = vec![];
+    let r_password = match env::var_os("REDIS_AUTH") {
+        Some(password) => Some(password.into_string().unwrap()),
+        None => None   
+    };
 
+    // Begin connection setup to exchange websockets
+    // =====================================================
     let mut bitmex_settings = *bitmex::WSExchange::default_settings().unwrap();
     bitmex_settings.r = r.clone();
-    bitmex_settings.r_password = Some(r_password.as_ref().unwrap().clone());
+    bitmex_settings.r_password = r_password.as_ref().cloned();
 
-    exchanges.push(thread::spawn(move || bitmex::WSExchange::run(Some(&bitmex_settings))));
+    // =====================================================
+
+    let mut exchanges = vec![];
+
+    // Push exchange instance threads to vector
+    exchanges.push(thread::spawn(move || 
+        bitmex::WSExchange::run(Some(&bitmex_settings))));
+
+    // Initiate tectonic connection for the listener
+    let mut t = tectonic::TectonicConnection::new(None, None).expect("Failed to connect to TectonicDB");
+
+    // Start a listener to insert ticks into tectonicdb
+    exchanges.push(thread::spawn(move ||
+        listener::listen_and_insert(&r, &mut t)));
 
     for exchange in exchanges {
         let _ = exchange.join();

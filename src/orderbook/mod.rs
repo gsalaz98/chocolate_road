@@ -24,6 +24,8 @@ pub const BID: u8 = 1 << 5;
 /// that happen to the orderbook over time. Deltas are the primary way that orderbooks are updated.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delta {
+    /// Pair symbol (e.g. BTCUSD, XBTUSD, ETHUSD) 
+    pub symbol: String,
     /// Level price
     pub price: f32,
     /// Level size
