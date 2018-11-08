@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Gerardo Salazar <gsalaz9800@gmail.com>"]
 
 [dependencies]
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 crossbeam = "0.4"
 futures-preview = "0.2.2"
 ndarray = { version = "0.12.0", features = ["blas"] }

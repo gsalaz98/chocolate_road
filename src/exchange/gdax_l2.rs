@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::thread;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, atomic, Mutex, RwLock};
 
 use chrono::prelude::*;
 use redis::{self, Commands};
@@ -77,6 +77,9 @@ pub struct WSExchangeSender {
 /// All types contained within are considered optional. This may be expanded in the future.
 #[derive(Clone)]
 pub struct MetaData {
+    /// Exchange name. We will warehouse the data under this name
+    pub exchange: Arc<String>,
+
     /// Vector of asset pairs we're going to warehouse
     pub asset_pair: Option<Vec<[exchange::Asset; 2]>>,
 
@@ -97,6 +100,7 @@ impl AssetExchange for WSExchange {
             snapshot_received: false,
 
             metadata: MetaData {
+                exchange: Arc::new("gdax".into()),
                 asset_pair: Some(vec![
                     [Asset::BTC, Asset::USD],]),
                 start_date: None,
@@ -173,8 +177,25 @@ struct SubscribeMessage {
     channels: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct L2Message {
+    #[serde(rename = "type")]
+    type_: String,
+    product_id: String,
+    time: String,
+    changes: Vec<(String, String, String)>,
+}
+
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, shake: Handshake) -> Result<(), Error> {
+        for pair in self.metadata.asset_pair.as_ref().expect("No asset pairs passed to GDAX structure") {
+            let db_name = format!("{}_{}", self.metadata.exchange.deref(), exchange::get_asset_pair(pair, Exchange::GDAX));
+
+            if !self.tectonic.exists(db_name.clone())? {
+                let _ = self.tectonic.create(db_name);
+            }
+        }
+
         let mut msg = SubscribeMessage {
             type_: "subscribe".into(),
             product_ids: vec![],
@@ -202,7 +223,50 @@ impl Handler for WSExchangeSender {
     }
 
     fn on_message(&mut self, msg: Message) -> Result<(), Error> {
-        println!("{}", msg.into_text().unwrap());
+        let redis_ref = self.r.clone();
+        let exchange = self.metadata.exchange.clone();
+
+        thread::spawn(move || {
+            match serde_json::from_slice::<L2Message>(&msg.into_data()) {
+                Ok(message) => {
+                    let mut deltas = Vec::with_capacity(message.changes.len());
+                    // Begin sequence counting at 1 in order to reconstruct a proper sequence count 
+                    let mut seq = 1;
+
+                    for update in message.changes {
+                        deltas.push(orderbook::Delta {
+                            // TODO: See if there's a way to avoid using clone
+                            symbol: message.product_id.clone(),
+                            price: update.1.parse::<f32>().unwrap(),
+                            size: update.2.parse::<f32>().unwrap(),
+                            seq: seq,
+                            event: if update.0 == "buy" {
+                                    orderbook::BID
+                                } else { 
+                                    orderbook::ASK 
+                                } ^ if update.2.parse::<f32>().unwrap() == 0.0 {
+                                    orderbook::REMOVE
+                                } else {
+                                    orderbook::UPDATE
+                                },
+                            ts: Utc.datetime_from_str(&message.time, "%Y-%m-%dT%H:%M:%S.%3fZ")
+                                .unwrap()
+                                .timestamp_millis() as f64 * 0.001f64
+                        });
+
+                        seq += 1;
+                    }
+
+                    // Lock the connection until we are able to aquire it
+                    let _ = redis_ref.as_ref()
+                        .lock()
+                        .unwrap()
+                        .publish::<&str, &str, u8>(exchange.deref(), &serde_json::to_string(&deltas).unwrap())
+                        .expect("Failed to publish message to redis PUBSUB");
+                },
+                Err(e) => println!("Error: {}", e),
+            };
+        });
 
         Ok(())
     }

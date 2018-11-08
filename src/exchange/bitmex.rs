@@ -282,7 +282,7 @@ impl Handler for WSExchangeSender {
 
         // Spawn thread to ensure accurate timestamps
         thread::spawn(move || {
-            match serde_json::from_str::<BitMEXMessage>(&msg.into_text().expect("Failed to convert message to text")) {
+            match serde_json::from_slice::<BitMEXMessage>(&msg.into_data()) {
                 Ok(message) => {
                     // Skip snapshots and other misc. data
                     if message.table == "" || message.table == "partial" {

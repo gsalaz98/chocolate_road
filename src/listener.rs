@@ -5,16 +5,22 @@ use exchange;
 use orderbook;
 use orderbook::tectonic;
 
-/// Listens on redis for [`Delta`] ticks and writes them to TectonicDB.
-/// This function is called and ran in its own thread.
-pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>, t: &mut tectonic::TectonicConnection) {
-    let mut redis_conn = r.get_connection().unwrap();
+/// Initializes redis connection. Takes care of authentication if a password is present
+pub fn redis_init(r: &redis::Client, r_password: Option<&String>) -> redis::Connection {
+    let redis_conn = r.get_connection().unwrap();
+
     match r_password {
         Some(password) => redis::cmd("AUTH").arg(password)
             .execute(&redis_conn),
         None => ()
-    }
+    };
 
+    redis_conn
+}
+/// Listens on redis for [`Delta`] ticks and writes them to TectonicDB.
+/// This function is called and ran in its own thread.
+pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>, t: &mut tectonic::TectonicConnection) {
+    let mut redis_conn = self::redis_init(r, r_password.as_ref());
     let mut subscription = redis_conn.as_pubsub();
 
     for exch in exchange::get_supported_exchanges() {
@@ -34,10 +40,9 @@ pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>, t: &mut 
         }
 
         for delta in &deltas.unwrap() {
-            t.insert_into(
-                format!("{}_{}", message.get_channel_name(), delta.symbol), 
-                delta)
-            .unwrap();
+            let _ = t
+                .insert_into(format!("{}_{}", message.get_channel_name(), delta.symbol), delta)
+                .unwrap();
         }
     }
 }

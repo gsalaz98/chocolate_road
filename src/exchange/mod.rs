@@ -175,17 +175,17 @@ pub fn get_asset_pair(assets: &[Asset; 2], exch: Exchange) -> String {
     match exch.market_first() {
         true => {
             let mut pair = String::with_capacity(16);
-            pair.push_str(&exch.normalize_asset(&assets[1]).expect("Pair 1 not found"));
+            pair.push_str(&exch.normalize_asset(&assets[1]).expect("Asset 1 not found"));
             pair.push_str(exch.asset_separator().as_str());
-            pair.push_str(&exch.normalize_asset(&assets[0]).expect("Pair 0 not found"));
+            pair.push_str(&exch.normalize_asset(&assets[0]).expect("Asset 0 not found"));
 
             pair
         },
         false => {
             let mut pair = String::with_capacity(16);
-            pair.push_str(&exch.normalize_asset(&assets[0]).expect("Pair 0 not found"));
+            pair.push_str(&exch.normalize_asset(&assets[0]).expect("Asset 0 not found"));
             pair.push_str(exch.asset_separator().as_str());
-            pair.push_str(&exch.normalize_asset(&assets[1]).expect("Pair 1 not found"));
+            pair.push_str(&exch.normalize_asset(&assets[1]).expect("Asset 1 not found"));
 
             pair
         }

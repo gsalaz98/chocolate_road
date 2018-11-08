@@ -40,7 +40,8 @@ impl TectonicConnection {
 
         // Set socket timeout to 1s
         let connection = TcpStream::connect_timeout(&connect_address.parse().unwrap(), Duration::new(1,0))?;
-        
+        let _ = connection.set_read_timeout(Some(Duration::new(1, 0)));
+
         return Ok(TectonicConnection {
             host,
             port,
@@ -53,14 +54,13 @@ impl TectonicConnection {
 
     /// Sends a message to the TectonicDB server
     pub fn cmd(&mut self, message: String) -> Result<String, Error> { 
-        // Create buffer to store our message in. Use vector to store variable length message
-        let mut buf: Vec<u8> = Vec::new();
-
         // Convert the message into bytes using the `.as_bytes()` method
-        let _ = self.connection.write((message + "\n".into()).as_bytes())?;
-        let _ = self.connection.read(&mut buf)?;
+        let _ = self.connection.write(format!("{}\n", message).as_bytes());
 
-        Ok(str::from_utf8(&buf).unwrap().to_string())
+        let mut buf = [0; 256];
+        let _ = self.connection.read(&mut buf);
+
+        Ok(str::from_utf8(&buf).unwrap().to_owned())
     }
     /// Return help dialog
     pub fn help(&mut self) -> Result<String, Error> {
