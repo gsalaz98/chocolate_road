@@ -21,3 +21,6 @@ url = "1.7.1"
 [dependencies.ws]
 version = "0.7.8"
 features = ["ssl"]
+
+[profile.release]
+opt-level = 3

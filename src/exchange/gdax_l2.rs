@@ -257,7 +257,7 @@ impl Handler for WSExchangeSender {
             match serde_json::from_slice::<EventMessage>(&msg.into_data()) {
                 Ok(message) => {
                     // Begin sequence counting at 1 in order to reconstruct a proper sequence count 
-                    if message.type_ == "l2update" {
+                    if message.changes.is_some() {
                         let mut seq = 1;
                         let mut deltas: Vec<orderbook::Delta> = Vec::with_capacity(32);
 
@@ -285,18 +285,12 @@ impl Handler for WSExchangeSender {
                             seq += 1;
                         }
 
-                        let timestop = Utc::now().timestamp_millis() - Utc.datetime_from_str(&message.time, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                            .unwrap()
-                            .timestamp_millis();
-
                         // Lock the connection until we are able to aquire it
                         let _ = redis_ref.as_ref()
                             .lock()
                             .unwrap()
                             .publish::<&str, &str, u8>(exchange.deref(), &serde_json::to_string(&deltas).unwrap())
                             .expect("Failed to publish message to redis PUBSUB");
-
-                        println!("Total time: {}ms", timestop);
 
                     } else if message.type_ == "match" || message.type_ == "last_match" {
                         let _ = redis_ref.as_ref()
