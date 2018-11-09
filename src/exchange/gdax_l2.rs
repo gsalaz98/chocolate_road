@@ -1,12 +1,14 @@
+<<<<<<< HEAD
 use std::borrow::Borrow;
 use std::collections::HashMap;
+=======
+>>>>>>> 8101b6e... Minor improvements
 use std::thread;
 use std::ops::Deref;
-use std::sync::{Arc, atomic, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use chrono::prelude::*;
 use redis::{self, Commands};
-use reqwest;
 use serde_json;
 use ws;
 use ws::{Error, Handler, Handshake, Message, Sender};
@@ -47,10 +49,6 @@ pub struct WSExchangeSender {
     /// Indicate whether or not we've received the snapshot message yet
     snapshot_received: bool,
 
-    /// Optional function that can be called as a callback per message received.
-    /// Usually, this will send a delta, but we will make it generic to allow for flexability
-    //callback: Option<Box<Fn(&orderbook::Delta)>>,
-
     /// Collection metadata
     metadata: MetaData,
 
@@ -85,7 +83,7 @@ pub struct MetaData {
 
 impl AssetExchange for WSExchange {
     fn default_settings() -> Result<Box<Self>, String> {
-        let mut settings = Self {
+        Ok(Box::new(Self {
             host: "wss://ws-feed.pro.coinbase.com".into(),
 
             snapshot_received: false,
@@ -98,14 +96,14 @@ impl AssetExchange for WSExchange {
                 end_date: None,
             },
 
-            single_channels: vec!["level2".into()],
+            single_channels: vec![
+                "level2".into(), 
+                "matches".into()],
 
             tectonic: orderbook::tectonic::TectonicConnection::new(None, None).expect("Unable to connect to TectonicDB"),
             r: redis::Client::open("redis://localhost").unwrap(),
             r_password: None,
-        };
-
-        Ok(Box::new(settings))
+        }))
     }
 
     fn init_redis(&mut self) -> Result<redis::Connection, redis::RedisError> {
@@ -154,17 +152,50 @@ struct SubscribeMessage {
     channels: Vec<String>,
 }
 
+/// Every event that gets transmitted on websockets can have this form. We have
+/// generalized the struct to accomodate snapshots, matches, and level 2 orderbook updates.
 #[derive(Serialize, Deserialize)]
-struct L2Message {
+struct EventMessage {
     #[serde(rename = "type")]
+    /// Message type
     type_: String,
+    /// Asset symbol message applies to
     product_id: String,
+    /// Message timestamp (from GDAX)
     time: String,
-    changes: Vec<(String, String, String)>,
+
+    // level2 channel fields
+    // Fields are optional because we may end up processing
+    // a trade/tick event.
+
+    /// Snapshot bids
+    bids: Option<Vec<(String, String)>>,
+    /// Snapshot asks
+    asks: Option<Vec<(String, String)>>,
+
+    /// Orderbook deltas
+    changes: Option<Vec<(String, String, String)>>,
+
+    // Match channel fields
+    /// Trade ID. Unsure what this field does...
+    trade_id: Option<u64>,
+    /// Sequence count. Useful for determining order of events
+    sequence: Option<u128>,
+    /// Maker Order ID (not user profile ID)
+    maker_order_id: Option<String>,
+    /// Taker ID (not user profile ID)
+    taker_order_id: Option<String>,
+
+    /// Order size (in quantity of asset)
+    size: Option<String>,
+    /// Order price (in quantity of market)
+    price: Option<String>,
+    /// Order side (bid/ask)
+    side: Option<String>,
 }
 
 impl Handler for WSExchangeSender {
-    fn on_open(&mut self, shake: Handshake) -> Result<(), Error> {
+    fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
         for pair in self.metadata.asset_pair.as_ref().expect("No asset pairs passed to GDAX structure") {
             let db_name = format!("{}_{}", self.metadata.exchange.deref(), exchange::get_asset_pair(pair, Exchange::GDAX));
 
@@ -204,42 +235,71 @@ impl Handler for WSExchangeSender {
         let exchange = self.metadata.exchange.clone();
 
         thread::spawn(move || {
-            match serde_json::from_slice::<L2Message>(&msg.into_data()) {
+            match serde_json::from_slice::<EventMessage>(&msg.into_data()) {
                 Ok(message) => {
-                    let mut deltas = Vec::with_capacity(message.changes.len());
                     // Begin sequence counting at 1 in order to reconstruct a proper sequence count 
-                    let mut seq = 1;
+                    if message.changes.is_some() {
+                        let mut seq = 1;
+                        let mut deltas: Vec<orderbook::Delta> = Vec::with_capacity(32);
 
-                    for update in message.changes {
-                        deltas.push(orderbook::Delta {
-                            // TODO: See if there's a way to avoid using clone
-                            symbol: message.product_id.clone(),
-                            price: update.1.parse::<f32>().unwrap(),
-                            size: update.2.parse::<f32>().unwrap(),
-                            seq: seq,
-                            event: if update.0 == "buy" {
-                                    orderbook::BID
-                                } else { 
-                                    orderbook::ASK 
-                                } ^ if update.2.parse::<f32>().unwrap() == 0.0 {
-                                    orderbook::REMOVE
-                                } else {
-                                    orderbook::UPDATE
-                                },
-                            ts: Utc.datetime_from_str(&message.time, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                                .unwrap()
-                                .timestamp_millis() as f64 * 0.001f64
-                        });
+                        for update in message.changes.unwrap() {
+                            deltas.push(orderbook::Delta {
+                                // TODO: See if there's a way to avoid using clone
+                                symbol: message.product_id.clone(),
+                                price: update.1.parse::<f32>().unwrap(),
+                                size: update.2.parse::<f32>().unwrap(),
+                                seq: seq,
+                                event: if update.0 == "buy" {
+                                        orderbook::BID
+                                    } else { 
+                                        orderbook::ASK 
+                                    } ^ if update.2.parse::<f32>().unwrap() == 0.0 {
+                                        orderbook::REMOVE
+                                    } else {
+                                        orderbook::UPDATE
+                                    },
+                                ts: Utc.datetime_from_str(&message.time, "%Y-%m-%dT%H:%M:%S.%3fZ")
+                                    .unwrap()
+                                    .timestamp_millis() as f64 * 0.001f64
+                            });
 
-                        seq += 1;
+                            seq += 1;
+                        }
+
+                        // Lock the connection until we are able to aquire it
+                        let _ = redis_ref.as_ref()
+                            .lock()
+                            .unwrap()
+                            .publish::<&str, &str, u8>(exchange.deref(), &serde_json::to_string(&deltas).unwrap())
+                            .expect("Failed to publish message to redis PUBSUB");
+
+                    } else if message.type_ == "match" || message.type_ == "last_match" {
+                        let _ = redis_ref.as_ref()
+                            .lock()
+                            .unwrap()
+                            .publish::<&str, &str, u8>(
+                                exchange.deref(), 
+                                &serde_json::to_string(&[orderbook::Delta{
+                                    symbol: message.product_id,
+                                    price: message.price.unwrap().parse::<f32>().unwrap(),
+                                    size: message.size.unwrap().parse::<f32>().unwrap(),
+                                    seq: message.sequence.unwrap() as u32,
+                                    event: if message.side.unwrap() == "buy" {
+                                        orderbook::BID
+                                    } else { 
+                                        orderbook::ASK 
+                                    } ^ orderbook::TRADE,
+
+                                    ts: Utc.datetime_from_str(&message.time, "%Y-%m-%dT%H:%M:%S.%6fZ")
+                                        .expect("Failed to parse DateTime from string")
+                                        .timestamp_millis() as f64 * 0.001f64 
+                                }])
+                                .unwrap())
+                            .expect("Failed to publish GDAX 'match' to Redis");
+                    } else {
+                        // Message is snapshot. Save to disk and upload to s3 or google cloud 
+
                     }
-
-                    // Lock the connection until we are able to aquire it
-                    let _ = redis_ref.as_ref()
-                        .lock()
-                        .unwrap()
-                        .publish::<&str, &str, u8>(exchange.deref(), &serde_json::to_string(&deltas).unwrap())
-                        .expect("Failed to publish message to redis PUBSUB");
                 },
                 Err(e) => println!("Error: {}", e),
             };

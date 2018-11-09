@@ -65,7 +65,10 @@ fn main() {
 
     let mut gdax_settings = *gdax_l2::WSExchange::default_settings().unwrap();
     gdax_settings.metadata.asset_pair = Some(vec![
-        [Asset::BTC, Asset::USD]
+        [Asset::BTC, Asset::USD],
+        [Asset::ETH, Asset::USD],
+        [Asset::LTC, Asset::USD],
+        [Asset::BTC, Asset::USDC],
     ]);
     gdax_settings.r = r.clone();
     gdax_settings.r_password = r_password.as_ref().cloned();
