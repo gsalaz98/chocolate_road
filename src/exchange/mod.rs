@@ -5,9 +5,7 @@ pub mod bitmex;
 /// GDAX managed by level 2 orderbook
 pub mod gdax_l2;
 
-use strum::AsStaticRef;
 use redis;
-use orderbook;
 
 /// Returns the list of supported exchanges as a vector of strings
 pub fn get_supported_exchanges() -> Vec<String> {
@@ -67,6 +65,7 @@ impl Exchange {
                 Asset::LTC => Some("LTC".into()),
 
                 Asset::USD => Some("USD".into()),
+                Asset::USDC => Some("USDC".into()),
                 _ => None
             },
             Exchange::BitMEX => match asset {
@@ -129,6 +128,8 @@ pub enum Asset {
     LTC,
     /// Tether
     USDT,
+    /// USD Stablecoin by Coinbase
+    USDC,
 
     // FIAT
     //

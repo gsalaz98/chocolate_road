@@ -22,6 +22,7 @@ pub fn redis_init(r: &redis::Client, r_password: Option<&String>) -> redis::Conn
 pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>, t: &mut tectonic::TectonicConnection) {
     let mut redis_conn = self::redis_init(r, r_password.as_ref());
     let mut subscription = redis_conn.as_pubsub();
+    let mut insertions = 0;
 
     for exch in exchange::get_supported_exchanges() {
         subscription.subscribe(exch).expect("Failed to subscribe to channel");
@@ -43,6 +44,15 @@ pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>, t: &mut 
             let _ = t
                 .insert_into(format!("{}_{}", message.get_channel_name(), delta.symbol), delta)
                 .unwrap();
+
+            insertions += 1;
+        }
+
+        // Flush to disk every 10,000 ticks
+        if insertions % 10_000 == 0 {
+            print!("Flushing TectonicDB data to disk... ");
+            let _ = t.flush_all().unwrap();
+            println!("Success");
         }
     }
 }
