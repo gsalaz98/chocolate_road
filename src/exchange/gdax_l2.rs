@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::thread;
 use std::ops::Deref;
@@ -17,12 +18,8 @@ use orderbook;
 /// a successful connection with the exchange via websockets.
 #[derive(Clone)]
 pub struct WSExchange {
-    /// Host - Can be domain name or IP address
+    /// Full URL to connect to. Example: `wss://www.bitmex.com/realtime
     pub host: String,
-    /// Port - Optional value. If no value is provided, the final URL won't have a port specified
-    pub port: Option<u16>,
-    /// Custom path for connection. Is appended at the end of a URL if present. Do not add trailing forward-slash.
-    pub conn_path: Option<String>,
 
     /// Indicate whether or not we've received the snapshot message yet
     pub snapshot_received: bool,
@@ -44,12 +41,8 @@ pub struct WSExchange {
 
 /// Create two identical structs and transfer the data over when we start the websocket.
 pub struct WSExchangeSender {
-    /// Host - Can be domain name or IP address
+    /// Full URL to connect to. Example: `wss://www.bitmex.com/realtime`
     host: String,
-    /// Port - Optional value. If no value is provided, the final URL won't have a port specified
-    port: Option<u16>,
-    /// Custom path for connection. Is appended at the end of a URL if present. Do not add trailing forward-slash.
-    conn_path: Option<String>,
 
     /// Indicate whether or not we've received the snapshot message yet
     snapshot_received: bool,
@@ -94,8 +87,6 @@ impl AssetExchange for WSExchange {
     fn default_settings() -> Result<Box<Self>, String> {
         let mut settings = Self {
             host: "wss://ws-feed.pro.coinbase.com".into(),
-            port: None,
-            conn_path: None,
 
             snapshot_received: false,
 
@@ -135,25 +126,11 @@ impl AssetExchange for WSExchange {
     }
 
     fn run(settings: Option<&Self>) {
-        let mut connect_url = String::new();
         // Try to use the settings the user passes before resorting to default settings.
         let mut settings = settings.cloned().unwrap_or(*WSExchange::default_settings().unwrap());
 
-        connect_url.push_str(settings.host.as_str());
-        
-        if !settings.port.is_none() {
-            connect_url.push(':');
-            connect_url.push_str(settings.port.unwrap().to_string().as_str());
-        }
-        if !settings.conn_path.is_none() {
-            connect_url.push('/');
-            connect_url.push_str(settings.conn_path.as_ref().unwrap().as_str());
-        }
-
-        ws::connect(connect_url, |out| WSExchangeSender {
+        ws::connect(settings.host.clone(), |out| WSExchangeSender {
             host: settings.host.clone(),
-            port: settings.port.clone(),
-            conn_path: settings.conn_path.clone(),
 
             snapshot_received: settings.snapshot_received.clone(),
             metadata: settings.metadata.clone(),
@@ -164,7 +141,7 @@ impl AssetExchange for WSExchange {
             r: Arc::new(Mutex::new(settings.init_redis().expect("Failed to connect to Redis server."))),
 
             out,
-        }).expect("Failed to establish websocket connection");
+        }).unwrap();
     }
 }
 
@@ -269,5 +246,24 @@ impl Handler for WSExchangeSender {
         });
 
         Ok(())
+    }
+
+    fn on_close(&mut self, _: ws::CloseCode, _: &str) {
+        // TODO: Have proper handling of disconnect events. We should be handling disconnects more gracefully
+        // instead of just reconnecting. We need to be prepared for them and handle data accordingly.
+        println!("GDAX Socket is closing. Opening a new connection...");
+
+        ws::connect(self.host.clone(), |out| WSExchangeSender{
+            host: self.host.clone(),
+            snapshot_received: false,
+            metadata: self.metadata.clone(),
+
+            single_channels: self.single_channels.clone(),
+
+            tectonic: self.tectonic.clone(),
+            r: self.r.clone(),
+
+            out,
+        }).unwrap();
     }
 }

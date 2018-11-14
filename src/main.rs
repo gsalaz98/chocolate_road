@@ -42,8 +42,7 @@ pub mod tests;
 
 use std::env;
 use std::thread;
-use std::net::TcpStream;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 use exchange::{Asset, AssetExchange, binance, bitmex, gdax_l2};
 use orderbook::tectonic;

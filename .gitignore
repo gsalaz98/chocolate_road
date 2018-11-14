@@ -1,5 +1,5 @@
 # VSCode Editor Files
-.vscode/*
+.vscode/
 
 # Rust build files
 /target
