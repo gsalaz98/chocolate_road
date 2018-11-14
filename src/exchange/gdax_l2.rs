@@ -6,10 +6,13 @@ use chrono::prelude::*;
 use redis::{self, Commands};
 use serde_json;
 use ws;
+use ws::util::Token;
 use ws::{Error, Handler, Handshake, Message, Sender};
 
 use exchange::{self, Asset, AssetExchange, Exchange};
 use orderbook;
+
+const EXPIRE: Token = Token(1);
 
 /// Exchange related metadata. The fields are used to establish
 /// a successful connection with the exchange via websockets.
@@ -191,6 +194,9 @@ struct EventMessage {
 
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
+        // Set a timeout for 5 seconds of inactivity
+        self.out.timeout(5_000, EXPIRE).unwrap();
+
         for pair in self.metadata.asset_pair.as_ref().expect("No asset pairs passed to GDAX structure") {
             let db_name = format!("{}_{}", self.metadata.exchange.deref(), exchange::get_asset_pair(pair, Exchange::GDAX));
 
@@ -320,5 +326,26 @@ impl Handler for WSExchangeSender {
 
             out,
         }).unwrap();
+    }
+
+    fn on_timeout(&mut self, event: Token) -> Result<(), ws::Error> {
+        // TODO: Have proper handling of disconnect events. We should be handling disconnects more gracefully
+        // instead of just reconnecting. We need to be prepared for them and handle data accordingly.
+        println!("GDAX Socket timed out (5s of inactivity). Opening a new connection...");
+
+        ws::connect(self.host.clone(), |out| WSExchangeSender{
+            host: self.host.clone(),
+            snapshot_received: false,
+            metadata: self.metadata.clone(),
+
+            single_channels: self.single_channels.clone(),
+
+            tectonic: self.tectonic.clone(),
+            r: self.r.clone(),
+
+            out,
+        }).unwrap();
+
+        Ok(())
     }
 }

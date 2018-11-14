@@ -8,10 +8,13 @@ use redis::{self, Commands};
 use reqwest;
 use serde_json;
 use ws;
+use ws::util::Token;
 use ws::{Error, Handler, Handshake, Message, Sender};
 
 use exchange::{self, Asset, AssetExchange, Exchange};
 use orderbook;
+
+const EXPIRE: Token = Token(1);
 
 /// Exchange related metadata. The fields are used to establish
 /// a successful connection with the exchange via websockets.
@@ -212,6 +215,9 @@ struct BitMEXSubscription {
 
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
+        // Set a timeout for 5 seconds of inactivity
+        self.out.timeout(5_000, EXPIRE);
+
         let mut msg = BitMEXSubscription {
             op: "subscribe".into(),
             args: vec![],
@@ -359,5 +365,30 @@ impl Handler for WSExchangeSender {
 
             out,
         }).unwrap();
+    }
+
+    fn on_timeout(&mut self, event: Token) -> Result<(), ws::Error> {
+        // TODO: Have proper handling of disconnect events. We should be handling disconnects more gracefully
+        // instead of just reconnecting. We need to be prepared for them and handle data accordingly.
+        println!("BitMEX Socket timed out (5s of inactivity). Opening a new connection...");
+
+        ws::connect(self.host.clone(), |out| WSExchangeSender{
+            host: self.host.clone(),
+            snapshot_received: false,
+            metadata: self.metadata.clone(),
+
+            single_channels: self.single_channels.clone(),
+            dual_channels: self.dual_channels.clone(),
+
+            asset_indexes: self.asset_indexes.clone(),
+            asset_tick_size: self.asset_tick_size.clone(),
+
+            tectonic: self.tectonic.clone(),
+            r: self.r.clone(),
+
+            out,
+        }).unwrap();
+
+        Ok(())
     }
 }
