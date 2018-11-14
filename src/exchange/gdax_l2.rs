@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 8101b6e... Minor improvements
-=======
->>>>>>> 88afb5b417395add0a9f8a00dc5897ffbbc761d9
 use std::thread;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
