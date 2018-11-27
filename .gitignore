@@ -1,5 +1,7 @@
-# VSCode Editor Files
+# Editor Files
 .vscode/
+.idea/
+*.swp
 
 # Rust build files
 /target

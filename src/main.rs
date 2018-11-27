@@ -10,6 +10,15 @@
 //! 
 //! This project makes use of [TectonicDB](https://github.com/rickyhan/tectonicdb) to store orderbook data
 //! in a database efficiently. We also make use of LZMA2 to compress that data further to allow for more data storage.
+//!
+//! # Environment Variables
+//! `AWS_ACCESS_KEY_ID`: AWS Access Key
+//! `AWS_SECRET_ACCESS_KEY`: AWS Access Key Secret
+//! `AWS_DEFAULT_REGION`: Default region for AWS
+//! `S3_BUCKET`: Amazon S3 Bucket to upload to
+//! `REDIS_AUTH`: Redis password
+//! `DTF_DB_PATH`: TectonicDB Database where files are written to
+//! `HOME`: Unix home directory
 
 #![deny(missing_docs)]
 #![feature(custom_attribute)]
@@ -17,14 +26,19 @@
 #![feature(nll)]
 
 extern crate chrono;
+extern crate futures;
 extern crate ndarray;
 extern crate rayon;
 extern crate redis;
 extern crate reqwest;
+extern crate rusoto_core;
+extern crate rusoto_s3;
 extern crate serde_json;
 extern crate strum;
+extern crate tar;
 extern crate url;
 extern crate ws;
+extern crate xz2;
 
 #[macro_use]
 extern crate serde_derive;
@@ -35,6 +49,8 @@ extern crate strum_macros;
 pub mod exchange;
 /// Methods to listen on redis/ZeroMQ sockets. 
 pub mod listener;
+/// Handles uploading DTF compressed archives to the cloud
+pub mod uploader;
 /// Orderbook analytics and state management data structures
 pub mod orderbook;
 /// Unit tests for various parts of this project
@@ -42,14 +58,14 @@ pub mod tests;
 
 use std::env;
 use std::thread;
-use std::sync::{Arc, mpsc};
 
-use exchange::{Asset, AssetExchange, binance, bitmex, gdax_l2};
+use exchange::{Asset, AssetExchange, bitmex, gdax_l2};
 use orderbook::tectonic;
 
 fn main() {
     // Redis client is setup here so that we can provide it a host, password, and database
     let r = redis::Client::open("redis://127.0.0.1:6379/0").unwrap();
+    // TODO: Consider moving this to the `redis_init` function?
     let r_password = match env::var_os("REDIS_AUTH") {
         Some(password) => Some(password.into_string().unwrap()),
         None => None   
@@ -57,6 +73,7 @@ fn main() {
 
     // Begin connection setup to exchange websockets
     // =====================================================
+
     let mut bitmex_settings = *bitmex::WSExchange::default_settings().unwrap();
     bitmex_settings.metadata.asset_pair = Some(vec![
         [Asset::BTC, Asset::USD],]);

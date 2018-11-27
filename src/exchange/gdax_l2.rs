@@ -195,7 +195,8 @@ struct EventMessage {
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
         // Set a timeout for 5 seconds of inactivity
-        self.out.timeout(5_000, EXPIRE).unwrap();
+        // Issue: currently, this reruns every five seconds. Comment out while we fix.
+        //self.out.timeout(5_000, EXPIRE).unwrap();
 
         for pair in self.metadata.asset_pair.as_ref().expect("No asset pairs passed to GDAX structure") {
             let db_name = format!("{}_{}", self.metadata.exchange.deref(), exchange::get_asset_pair(pair, Exchange::GDAX));
@@ -328,7 +329,7 @@ impl Handler for WSExchangeSender {
         }).unwrap();
     }
 
-    fn on_timeout(&mut self, event: Token) -> Result<(), ws::Error> {
+    fn on_timeout(&mut self, _: Token) -> Result<(), ws::Error> {
         // TODO: Have proper handling of disconnect events. We should be handling disconnects more gracefully
         // instead of just reconnecting. We need to be prepared for them and handle data accordingly.
         println!("GDAX Socket timed out (5s of inactivity). Opening a new connection...");

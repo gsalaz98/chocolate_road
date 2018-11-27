@@ -131,12 +131,14 @@ struct BitMEXData {
 struct AssetInformation {
     symbol: String,
     timestamp: String,
-    tickSize: f32,
+
+    #[serde(rename = "tickSize")]
+    tick_size: f32,
 }
 
 impl AssetExchange for WSExchange {
     fn default_settings() -> Result<Box<Self>, String> {
-        let mut settings = Self {
+        let settings = Self {
             host: "wss://www.bitmex.com/realtime".into(),
 
             snapshot_received: false,
@@ -216,7 +218,9 @@ struct BitMEXSubscription {
 impl Handler for WSExchangeSender {
     fn on_open(&mut self, _: Handshake) -> Result<(), Error> {
         // Set a timeout for 5 seconds of inactivity
-        self.out.timeout(5_000, EXPIRE);
+        // Issue: currently, this reruns every five seconds. Disable for the meanwhile 
+        // while we fix this issue
+        // self.out.timeout(5_000, EXPIRE).unwrap();
 
         let mut msg = BitMEXSubscription {
             op: "subscribe".into(),
@@ -251,9 +255,14 @@ impl Handler for WSExchangeSender {
             self.asset_tick_size.deref()
                 .write()
                 .unwrap()
-                .insert(asset.symbol.clone(), asset.tickSize);
+                .insert(asset.symbol.clone(), asset.tick_size);
 
-            if !self.tectonic.exists(format!("bitmex_{}", asset.symbol.clone()))? {
+            if !self.tectonic.exists(format!("bitmex_{}", asset.symbol.clone()))? && 
+                asset.symbol.clone() == exchange::get_asset_pair(
+                    &[exchange::Asset::BTC, exchange::Asset::USD], 
+                    exchange::Exchange::BitMEX)
+                {
+
                 // Create tectonic database if it doesn't exist yet. This avoids many issues
                 // relating to inserting to a non-existant database.
                 let _ = self.tectonic.create(format!("bitmex_{}", asset.symbol.clone()));
@@ -367,7 +376,7 @@ impl Handler for WSExchangeSender {
         }).unwrap();
     }
 
-    fn on_timeout(&mut self, event: Token) -> Result<(), ws::Error> {
+    fn on_timeout(&mut self, _: Token) -> Result<(), ws::Error> {
         // TODO: Have proper handling of disconnect events. We should be handling disconnects more gracefully
         // instead of just reconnecting. We need to be prepared for them and handle data accordingly.
         println!("BitMEX Socket timed out (5s of inactivity). Opening a new connection...");

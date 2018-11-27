@@ -40,6 +40,7 @@ impl TectonicConnection {
 
         // Set socket timeout to 1s
         let connection = TcpStream::connect_timeout(&connect_address.parse().unwrap(), Duration::new(1,0))?;
+        // Resolves issue #1. Please remove this comment if this line is changed
         let _ = connection.set_read_timeout(Some(Duration::new(1, 0)));
 
         return Ok(TectonicConnection {

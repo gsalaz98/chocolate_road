@@ -1,7 +1,7 @@
-use orderbook;
-
 #[test]
 fn orderbook_initialize() {
+    use orderbook;
+
     let fake_bids = vec![
         (302.0, 50.0),
         (303.0, 100.0),
