@@ -3,11 +3,11 @@
 //!     1. Efficient
 //!     2. Easy to use
 //!     3. Portable across exchanges
-//! 
+//!
 //! The point of this project isn't to make an execution engine (although a fast one would be very nice), but rather
-//! gather data for market analysis. We may be able to make use of [LEAN](https://github.com/QuantConnect/LEAN) instead to construct our trading strategies and 
+//! gather data for market analysis. We may be able to make use of [LEAN](https://github.com/QuantConnect/LEAN) instead to construct our trading strategies and
 //! plug it in to various exchanges. CCXT may be another option for this as well, as it already has built-in support for lots of crypto exchanges
-//! 
+//!
 //! This project makes use of [TectonicDB](https://github.com/rickyhan/tectonicdb) to store orderbook data
 //! in a database efficiently. We also make use of LZMA2 to compress that data further to allow for more data storage.
 //!
@@ -42,12 +42,12 @@ extern crate xz2;
 
 #[macro_use]
 extern crate serde_derive;
-#[macro_use] 
+#[macro_use]
 extern crate strum_macros;
 
 /// Exchanges and exchange-related methods and modules
 pub mod exchange;
-/// Methods to listen on redis/ZeroMQ sockets. 
+/// Methods to listen on redis/ZeroMQ sockets.
 pub mod listener;
 /// Handles uploading DTF compressed archives to the cloud
 pub mod uploader;
@@ -68,7 +68,7 @@ fn main() {
     // TODO: Consider moving this to the `redis_init` function?
     let r_password = match env::var_os("REDIS_AUTH") {
         Some(password) => Some(password.into_string().unwrap()),
-        None => None   
+        None => None
     };
 
     // Begin connection setup to exchange websockets
@@ -95,7 +95,7 @@ fn main() {
     let mut exchanges = vec![];
 
     // Push exchange instance threads to vector
-    exchanges.push(thread::spawn(move || 
+    exchanges.push(thread::spawn(move ||
         bitmex::WSExchange::run(Some(&bitmex_settings))));
 
     exchanges.push(thread::spawn(move ||
@@ -104,8 +104,8 @@ fn main() {
     // Start a listener to insert ticks into tectonicdb
     exchanges.push(thread::spawn(move ||
         listener::listen_and_insert(
-            &r, 
-            r_password, 
+            &r,
+            r_password,
             &mut tectonic::TectonicConnection::new(None, None)
                 .expect("Failed to connect to TectonicDB"))));
 

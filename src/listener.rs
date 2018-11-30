@@ -52,7 +52,7 @@ pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>,
 
         // TODO: Make the insertion rate changable from a configuration file
         // Flush to disk every 10,000 ticks
-        if ticks % 10_000 == 0 {
+        if ticks % 1_000 == 0 && ticks > 0{
             // TODO: Write files to AWS before flushing new files to disk
             print!("Flushing TectonicDB data to disk... ");
             let _ = t.flush_all().unwrap();
@@ -69,4 +69,3 @@ pub fn listen_and_insert(r: &redis::Client, r_password: Option<String>,
         ticks += 1;
     }
 }
-

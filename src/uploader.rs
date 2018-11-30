@@ -16,7 +16,8 @@ use xz2::read::XzEncoder;
 /// the file externally than it is to figure it out inside the function.
 ///
 /// # Parameters
-/// `db_name`: Filename the final tar.xz archive will have
+/// `db_name`: Filename the final tar.xz archive will have. Must be a unique name to avoid
+///     conflicts in the cloud. A good idea is to use the date and time, or a uuid.
 /// `db_path`: Path to location of the DTF database (on disk)
 pub fn compress_database_and_delete(db_name: &String, db_path: Option<String>) -> Result<(), Error> {
     // Define the database path location. We will try and match against environment variables before
@@ -26,13 +27,15 @@ pub fn compress_database_and_delete(db_name: &String, db_path: Option<String>) -
         Err(_) => env::var("HOME").unwrap() + "/tectonicdb/target/release/db"
     });
 
-    let mut db_tar = File::create(db_name)?;
+    let db_tar = File::create(db_name)?;
     let mut db_tar_builder = tar::Builder::new(&db_tar);
 
     // Add all files inside the dtf database folder and name the folder "db"
     db_tar_builder.append_dir_all("db", &db_path)?;
     // Create and write the tar archive
     db_tar_builder.into_inner()?;
+    // Drop tar file for later writing as an xz archive
+    drop(db_tar);
 
     // Create XzEncoder instance with new file open to avoid 'Bad file descriptor' error.
     let mut xz_enc = XzEncoder::new(File::open(db_name)?, 9);
@@ -41,13 +44,10 @@ pub fn compress_database_and_delete(db_name: &String, db_path: Option<String>) -
     // Read compressed xz bytes to a buffer
     xz_enc.read_to_end(&mut xz_buf)?;
 
-    // Close XZ compressor
-    drop(xz_enc);
-
-    // Reopen db tar file to write compressed bytes
-    //let mut db_tar = File::open(db_name).expect("Failed to open tar file for compression");
-
-    // Finally, write compressed xz bytes to a file, overriding the tar contents
+    // Reopen file. It doesn't matter if the data gets truncated, given we've
+    // already read the contents of the tar file into a buffer.
+    let mut db_tar = File::create(db_name)?;
+    // Finally, write compressed xz bytes to a file
     db_tar.write_all(&mut xz_buf)?;
 
     // Delete all files in the tectonic database
@@ -78,8 +78,8 @@ pub fn s3_upload(db_name: &String,
     let region = region.unwrap_or(rusoto_core::Region::UsEast1);
 
     let s3 = S3Client::new_with(
-        rusoto_core::request::HttpClient::new().unwrap(), 
-        credentials, 
+        rusoto_core::request::HttpClient::new().unwrap(),
+        credentials,
         region);
 
     // TODO: Remove hardcoded `cuteq` variable and load from Cargo.toml
@@ -88,10 +88,10 @@ pub fn s3_upload(db_name: &String,
         Err(_) => "cuteq".into()
     });
 
-    let mut dtf_file = File::open(db_name)?;
+    let mut xz_archive = File::open(db_name)?;
     let mut dtf_buf = vec![];
 
-    dtf_file.read_to_end(&mut dtf_buf)?;
+    xz_archive.read_to_end(&mut dtf_buf)?;
 
     let s3_req = rusoto_s3::PutObjectRequest {
         bucket,
@@ -106,8 +106,9 @@ pub fn s3_upload(db_name: &String,
             // TODO: implement logging
             println!("{:?}", msg);
 
-            drop(dtf_file);
-            //remove_file(db_name)?;
+            drop(xz_archive);
+            // Delete the archive, given we have no need for it anymore
+            remove_file(db_name)?;
 
             return Ok(())
         },
