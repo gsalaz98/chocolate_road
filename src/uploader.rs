@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs::{read_dir, remove_file, File};
 use std::io::{Error, ErrorKind, Read, Write};
@@ -69,6 +70,7 @@ pub fn compress_database_and_delete(db_name: &String, db_path: Option<String>) -
 ///
 /// Issue: Does not upload to S3.
 pub fn s3_upload(db_name: &String,
+                 metadata: Option<HashMap<String, String>>,
                  bucket: Option<String>,
                  region: Option<rusoto_core::Region>) -> Result<(), Error> {
 
@@ -97,6 +99,15 @@ pub fn s3_upload(db_name: &String,
         bucket,
         body: Some(dtf_buf.into()),
         key: db_name.clone(),
+        metadata,
+        // Set the storage class. We will default to infrequent access
+        // if no environment variable is set. This is to save money on long term
+        // storage, while still being able to retrieve the data at a reasonable price
+        // compared to AWS Glacier.
+        storage_class: match env::var("S3_STORAGE_CLASS") {
+            Ok(var) => Some(var),
+            Err(_) => Some("STANDARD_IA".into()),
+        },
 
         ..Default::default()
     };

@@ -13,12 +13,13 @@
 //!
 //! # Environment Variables
 //! `AWS_ACCESS_KEY_ID`: AWS Access Key
-//! `AWS_SECRET_ACCESS_KEY`: AWS Access Key Secret
-//! `AWS_DEFAULT_REGION`: Default region for AWS
-//! `S3_BUCKET`: Amazon S3 Bucket to upload to
-//! `REDIS_AUTH`: Redis password
-//! `DTF_DB_PATH`: TectonicDB Database where files are written to
-//! `HOME`: Unix home directory
+//! `AWS_SECRET_ACCESS_KEY`: AWS Access Key Secret.
+//! `S3_BUCKET`: Amazon S3 Bucket to upload to. Defaults to "cuteq"
+//! `S3_STORAGE_CLASS`: Amazon S3 Storage class type. Defaults to "STANDARD_IA"
+//! `UPLOAD_PERIOD`: Sets the amount of time in seconds we should wait before dumping the
+//!     tectonicdb database and uploading it. Defaults to 86400 seconds (one day)
+//! `REDIS_AUTH`: Redis password.
+//! `DTF_DB_PATH`: TectonicDB Database where files are written to. Defaults to `$HOME/tectonicdb/target/release/db`
 
 #![deny(missing_docs)]
 #![feature(custom_attribute)]
@@ -103,7 +104,7 @@ fn main() {
 
     // Start a listener to insert ticks into tectonicdb
     exchanges.push(thread::spawn(move ||
-        listener::listen_and_insert(
+        listener::redis_listen_and_insert(
             &r,
             r_password,
             &mut tectonic::TectonicConnection::new(None, None)
