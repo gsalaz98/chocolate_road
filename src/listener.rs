@@ -69,7 +69,10 @@ pub fn redis_listen_and_insert(r: &redis::Client, r_password: Option<String>,
         let t = Utc::now().to_rfc3339() + ".tar.xz".into();
 
         uploader::compress_database_and_delete(&t, None).unwrap();
-        uploader::s3_upload(&t, None, None, None).unwrap();
+
+        if env::var("S3_UPLOAD").unwrap_or("false".into()) == String::from("true") {
+            uploader::s3_upload(&t, None, None, None).unwrap();
+        }
 
         println!("Success");
     }

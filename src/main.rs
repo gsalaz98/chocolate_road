@@ -14,6 +14,7 @@
 //! # Environment Variables
 //! `AWS_ACCESS_KEY_ID`: AWS Access Key
 //! `AWS_SECRET_ACCESS_KEY`: AWS Access Key Secret.
+//! `S3_UPLOAD`: Determines whether we upload to s3. "true" and "false" are valid values. Defaults to "true"
 //! `S3_BUCKET`: Amazon S3 Bucket to upload to. Defaults to "cuteq"
 //! `S3_STORAGE_CLASS`: Amazon S3 Storage class type. Defaults to "STANDARD_IA"
 //! `UPLOAD_PERIOD`: Sets the amount of time in seconds we should wait before dumping the

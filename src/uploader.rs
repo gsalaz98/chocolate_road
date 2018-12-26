@@ -3,8 +3,10 @@ use std::env;
 use std::fs::{read_dir, remove_file, File};
 use std::io::{Error, ErrorKind, Read, Write};
 
+use rusoto_core;
 use rusoto_s3;
 use rusoto_s3::{S3, S3Client};
+use tar;
 use xz2::read::XzEncoder;
 
 /// Compresses the DTF database, with the path loaded from environment variable `DTF_DB_PATH`
@@ -23,10 +25,8 @@ use xz2::read::XzEncoder;
 pub fn compress_database_and_delete(db_name: &String, db_path: Option<String>) -> Result<(), Error> {
     // Define the database path location. We will try and match against environment variables before
     // falling back into a hardcoded default path. TODO: avoid using hardcoded path
-    let db_path = db_path.unwrap_or(match env::var("DTF_DB_PATH") {
-        Ok(db) => db,
-        Err(_) => env::var("HOME").unwrap() + "/tectonicdb/target/release/db"
-    });
+    let db_path = db_path.unwrap_or(
+        env::var("DTF_DB_PATH").unwrap_or(env::var("HOME").unwrap() + "/tectonicdb/target/release/db"));
 
     let db_tar = File::create(db_name)?;
     let mut db_tar_builder = tar::Builder::new(&db_tar);
@@ -85,10 +85,7 @@ pub fn s3_upload(db_name: &String,
         region);
 
     // TODO: Remove hardcoded `cuteq` variable and load from Cargo.toml
-    let bucket = bucket.unwrap_or(match env::var("S3_BUCKET") {
-        Ok(bucket) => bucket,
-        Err(_) => "cuteq".into()
-    });
+    let bucket = bucket.unwrap_or(env::var("S3_BUCKET").unwrap_or("cuteq".into()));
 
     let mut xz_archive = File::open(db_name)?;
     let mut dtf_buf = vec![];
@@ -104,10 +101,7 @@ pub fn s3_upload(db_name: &String,
         // if no environment variable is set. This is to save money on long term
         // storage, while still being able to retrieve the data at a reasonable price
         // compared to AWS Glacier.
-        storage_class: match env::var("S3_STORAGE_CLASS") {
-            Ok(var) => Some(var),
-            Err(_) => Some("STANDARD_IA".into()),
-        },
+        storage_class: Some(env::var("S3_STORAGE_CLASS").unwrap_or("STANDARD_IA".into())),
 
         ..Default::default()
     };
